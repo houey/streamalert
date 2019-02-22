@@ -4,7 +4,7 @@ import time
 import urllib
 from copy import deepcopy
 
-from publishers.core import AlertPublisher, Register
+from stream_alert.shared.publisher import AlertPublisher, Register
 from stream_alert.shared.description import RuleDescriptionParser
 
 RAUSCH = '#ff5a5f'
