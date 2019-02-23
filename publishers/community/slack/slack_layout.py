@@ -12,8 +12,16 @@ BABU = '#00d1c1'
 LIMA = '#8ce071'
 HACKBERRY = '#7b0051'
 
+
 @Register
-class PrettyLayout(AlertPublisher):
+class Summary(AlertPublisher):
+    """Adds a brief summary with the rule triggered, author, description, and time
+
+    To customize the behavior of this Publisher, it is recommended to subclass this and override
+    parameters as necessary. For example, an implementation could override _GITHUB_REPO_URL with
+    the URL appropriate for the organization using StreamAlert.
+    """
+
     _GITHUB_REPO_URL = 'https://github.com/airbnb/streamalert'
     _SEARCH_PATH = '/search'
     _RULES_PATH = '/rules'
@@ -30,7 +38,7 @@ class PrettyLayout(AlertPublisher):
             'slack.attachments': [
                 {
                     'fallback': 'Rule triggered: {}'.format(rule_name),
-                    'color': RAUSCH,
+                    'color': self._color(),
                     'author_name': author,
                     'author_link': self._author_url(author),
                     'author_icon': self._author_icon(author),
@@ -54,16 +62,25 @@ class PrettyLayout(AlertPublisher):
             '_previous_publication': publication,
         }
 
+    @staticmethod
+    def _color():
+        """The color of this section"""
+        return RAUSCH
+
     @classmethod
-    def _author_url(cls, author):
+    def _author_url(cls, _):
+        """When given an author name, returns a clickable link, if any"""
         return ''
 
     @classmethod
-    def _author_icon(cls, author):
+    def _author_icon(cls, _):
+        """When given an author name, returns a URL to an icon, if any"""
         return ''
 
     @classmethod
     def _title_url(cls, rule_name):
+        """When given the rule_name, returns a clickable link, if any"""
+
         # It's actually super hard to generate a exact link to a file just from the rule_name,
         # because the rule/ directory files are not deployed with the publishers in the alert
         # processor.
@@ -96,7 +113,7 @@ class AttachRuleInfo(AlertPublisher):
         rule_presentation = RuleDescriptionParser.present(rule_description)
 
         new_publication['slack.attachments'].append({
-            'color': LIMA,
+            'color': self._color(),
             'fields': map(
                 lambda (key): {'title': key, 'value': rule_presentation['fields'][key]},
                 rule_presentation['fields'].keys()
@@ -104,6 +121,10 @@ class AttachRuleInfo(AlertPublisher):
         })
 
         return new_publication
+
+    @staticmethod
+    def _color():
+        return LIMA
 
 
 @Register
@@ -127,13 +148,17 @@ class AttachPublication(AlertPublisher):
         )
 
         new_publication['slack.attachments'].append({
-            'color': BABU,
+            'color': self._color(),
             'title': 'Alert Data:',
             'text': cgi.escape(publication_block),
             'mrkdwn_in': ['text'],
         })
 
         return new_publication
+
+    @staticmethod
+    def _color():
+        return BABU
 
 
 @Register
@@ -176,7 +201,7 @@ class AttachFullRecord(AlertPublisher):
                     'via {}'.format(alert.source_service)
 
             return {
-                'color': HACKBERRY,
+                'color': self._color(),
                 'author': alert.source_entity if is_first else '',
                 'title': 'Record' if is_first else '',
                 'text': '```\n{}\n```'.format(document),
@@ -187,7 +212,7 @@ class AttachFullRecord(AlertPublisher):
                     }
                 ] if is_last else [],
                 'footer': footer,
-                'footer_icon': '',
+                'footer_icon': self._footer_icon_from_service(alert.source_service),
                 'mrkdwn_in': ['text'],
             }
 
@@ -220,5 +245,15 @@ class AttachFullRecord(AlertPublisher):
         return new_publication
 
     @staticmethod
+    def _color():
+        return HACKBERRY
+
+    @staticmethod
     def _source_service_url(source_service):
+        """A best-effort guess at the AWS dashboard link for the requested service."""
         return 'https://console.aws.amazon.com/{}/home'.format(source_service)
+
+    @staticmethod
+    def _footer_icon_from_service(_):
+        """Returns the URL of an icon, given an AWS service"""
+        return ''

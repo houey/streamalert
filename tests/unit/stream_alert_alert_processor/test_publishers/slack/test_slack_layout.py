@@ -2,7 +2,7 @@ from datetime import datetime
 
 from nose.tools import assert_equal, assert_true, assert_less_equal
 
-from publishers.community.slack.slack_layout import PrettyLayout, AttachRuleInfo, AttachPublication, \
+from publishers.community.slack.slack_layout import Summary, AttachRuleInfo, AttachPublication, \
     AttachFullRecord
 from tests.unit.stream_alert_alert_processor.helpers import get_alert
 
@@ -10,7 +10,7 @@ from tests.unit.stream_alert_alert_processor.helpers import get_alert
 class TestPrettyLayout(object):
 
     def setup(self):
-        self._publisher = PrettyLayout()
+        self._publisher = Summary()
 
     def test_simple(self):
         """Publishers - Slack - PrettyLayout"""
