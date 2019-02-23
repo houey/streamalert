@@ -34,48 +34,58 @@ from stream_alert.shared.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
+# https://support.pagerduty.com/docs/dynamic-notifications
+SEVERITY_CRITICAL = 'critical'
+SEVERITY_ERROR = 'error'
+SEVERITY_WARNING = 'warning'
+SEVERITY_INFO = 'info'
+SEVERITY_UNKNOWN = ''
 
-def events_v2_data(output_dispatcher, descriptor, alert, routing_key, with_record=True):
-    """Helper method to generate the payload to create an event using PagerDuty Events API v2
 
-    Args:
-        output_dispatcher (OutputDispatcher): The output sending these data
-        descriptor (str): The descriptor of the output sending these data
-        alert (Alert): Alert relevant to the triggered rule
-        routing_key (str): Routing key for this PagerDuty integration
-        with_record (boolean): Option to add the record data or not
+class EventsV2DataProvider(object):
+    """This class is meant to be mixed-into pagerduty outputs that integrate with v2 of the API"""
 
-    Returns:
-        dict: Contains JSON blob to be used as event
-    """
-    publication = compose_alert(alert, output_dispatcher, descriptor)
+    def events_v2_data(self, alert, descriptor, routing_key, with_record=True):
+        """Helper method to generate the payload to create an event using PagerDuty Events API v2
 
-    # Presentation defaults
-    default_summary = 'StreamAlert Rule Triggered - {}'.format(alert.rule_name)
-    default_description = alert.rule_description
-    default_record = alert.record
+        (!) NOTE: this method will not work unless this class is mixed into an OutputDispatcher
 
-    # Special field that Publishers can use to customize the header
-    # FIXME (derek.wang) the publication key does not adhere to the convention of __service__
-    # as a prefix, since this method is overloaded between two different outputs
-    summary = publication.get('pagerduty.summary', default_summary)
-    details = OrderedDict()
-    details['description'] = publication.get('pagerduty.description', default_description)
-    if with_record:
-        details['record'] = publication.get('record', default_record)
+        Args:
+            descriptor (str): The descriptor of the output sending these data
+            alert (Alert): Alert relevant to the triggered rule
+            routing_key (str): Routing key for this PagerDuty integration
+            with_record (boolean): Option to add the record data or not
 
-    payload = {
-        'summary': summary,
-        'source': alert.log_source,
-        'severity': 'critical',
-        'custom_details': details
-    }
-    return {
-        'routing_key': routing_key,
-        'payload': payload,
-        'event_action': 'trigger',
-        'client': 'StreamAlert'
-    }
+        Returns:
+            dict: Contains JSON blob to be used as event
+        """
+        publication = compose_alert(alert, self, descriptor)
+
+        # Presentation defaults
+        default_summary = 'StreamAlert Rule Triggered - {}'.format(alert.rule_name)
+        default_custom_details = OrderedDict()
+        default_custom_details['description'] = alert.rule_description
+        if with_record:
+            default_custom_details['record'] = alert.record
+        default_severity = SEVERITY_CRITICAL
+
+        # Special field that Publishers can use to customize the header
+        summary = publication.get('pagerduty-v2.summary', default_summary)
+        details = publication.get('pagerduty-v2.custom_details', default_custom_details)
+        severity = publication.get('pagerduty-v2.severity', default_severity)
+
+        payload = {
+            'source': alert.log_source,
+            'summary': summary,
+            'severity': severity,
+            'custom_details': details
+        }
+        return {
+            'routing_key': routing_key,
+            'payload': payload,
+            'event_action': 'trigger',
+            'client': 'StreamAlert'
+        }
 
 
 @StreamAlertOutput
@@ -132,15 +142,19 @@ class PagerDutyOutput(OutputDispatcher):
 
         publication = compose_alert(alert, self, descriptor)
 
-        message = 'StreamAlert Rule Triggered - {}'.format(publication.get('rule_name', ''))
-        details = {
-            'description': publication.get('rule_description', ''),
-            'record': publication.get('record', {})
+        default_description = 'StreamAlert Rule Triggered - {}'.format(alert.rule_name)
+        default_details = {
+            'description': alert.rule_description,
+            'record': alert.record,
         }
+
+        description = publication.get('pagerduty.description', default_description)
+        details = publication.get('pagerduty.details', default_details)
+
         data = {
             'service_key': creds['service_key'],
             'event_type': 'trigger',
-            'description': message,
+            'description': description,
             'details': details,
             'client': 'StreamAlert'
         }
@@ -154,7 +168,7 @@ class PagerDutyOutput(OutputDispatcher):
 
 
 @StreamAlertOutput
-class PagerDutyOutputV2(OutputDispatcher):
+class PagerDutyOutputV2(OutputDispatcher, EventsV2DataProvider):
     """PagerDutyOutput handles all alert dispatching for PagerDuty Events API v2"""
     __service__ = 'pagerduty-v2'
 
@@ -207,7 +221,7 @@ class PagerDutyOutputV2(OutputDispatcher):
         if not creds:
             return False
 
-        data = events_v2_data(self, descriptor, alert, creds['routing_key'])
+        data = self.events_v2_data(alert, descriptor, creds['routing_key'])
 
         try:
             self._post_request_retry(creds['url'], data, None, True)
@@ -222,7 +236,7 @@ class PagerdutySearchDelay(Exception):
 
 
 @StreamAlertOutput
-class PagerDutyIncidentOutput(OutputDispatcher):
+class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
     """PagerDutyIncidentOutput handles all alert dispatching for PagerDuty Incidents API v2"""
     __service__ = 'pagerduty-incident'
     INCIDENTS_ENDPOINT = 'incidents'
@@ -701,7 +715,7 @@ class PagerDutyIncidentOutput(OutputDispatcher):
 
         # Create alert to hold all the incident details
         with_record = rule_context.get('with_record', True)
-        event_data = events_v2_data(self, descriptor, alert, creds['integration_key'], with_record)
+        event_data = self.events_v2_data(alert, descriptor, creds['integration_key'], with_record)
         event = self._create_event(event_data)
         if not event:
             LOGGER.error('Could not create incident event, %s', self.__service__)
