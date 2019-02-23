@@ -2,7 +2,6 @@ import cgi
 import json
 import time
 import urllib
-from copy import deepcopy
 
 from stream_alert.shared.publisher import AlertPublisher, Register
 from stream_alert.shared.description import RuleDescriptionParser
@@ -106,13 +105,12 @@ class AttachRuleInfo(AlertPublisher):
     """
 
     def publish(self, alert, publication):
-        new_publication = deepcopy(publication)
-        new_publication['slack.attachments'] = new_publication.get('slack.attachments', [])
+        publication['slack.attachments'] = publication.get('slack.attachments', [])
 
         rule_description = alert.rule_description
         rule_presentation = RuleDescriptionParser.present(rule_description)
 
-        new_publication['slack.attachments'].append({
+        publication['slack.attachments'].append({
             'color': self._color(),
             'fields': map(
                 lambda (key): {'title': key, 'value': rule_presentation['fields'][key]},
@@ -120,7 +118,7 @@ class AttachRuleInfo(AlertPublisher):
             )
         })
 
-        return new_publication
+        return publication
 
     @staticmethod
     def _color():
@@ -136,8 +134,6 @@ class AttachPublication(AlertPublisher):
             # This publisher cannot be run except immediately after PrettyLayout
             return publication
 
-        new_publication = deepcopy(publication)
-
         publication_block = '```\n{}\n```'.format(
             json.dumps(
                 publication['_previous_publication'],
@@ -147,14 +143,14 @@ class AttachPublication(AlertPublisher):
             )
         )
 
-        new_publication['slack.attachments'].append({
+        publication['slack.attachments'].append({
             'color': self._color(),
             'title': 'Alert Data:',
             'text': cgi.escape(publication_block),
             'mrkdwn_in': ['text'],
         })
 
-        return new_publication
+        return publication
 
     @staticmethod
     def _color():
@@ -179,8 +175,7 @@ class AttachFullRecord(AlertPublisher):
     _LENGTH_PADDING = 10
 
     def publish(self, alert, publication):
-        new_publication = deepcopy(publication)
-        new_publication['slack.attachments'] = new_publication.get('slack.attachments', [])
+        publication['slack.attachments'] = publication.get('slack.attachments', [])
 
         # Generate the record and then dice it up into parts
         record_document = json.dumps(alert.record, indent=2, sort_keys=True, separators=(',', ': '))
