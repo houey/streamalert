@@ -13,7 +13,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-# pylint: disable=protected-access,attribute-defined-outside-init
+# pylint: disable=protected-access,attribute-defined-outside-init,too-many-lines
+from collections import OrderedDict
+
 from mock import patch, PropertyMock, Mock, MagicMock
 from nose.tools import assert_equal, assert_false, assert_true
 # import cProfile, pstats, StringIO
@@ -109,6 +111,46 @@ class TestPagerDutyOutputV2(object):
         assert_equal(len(props), 1)
         assert_equal(props['url'], 'https://events.pagerduty.com/v2/enqueue')
 
+    @patch('requests.post')
+    def test_dispatch_sends_correct_request(self, post_mock):
+        """PagerDutyOutputV2 - Dispatch Sends Correct Request"""
+        post_mock.return_value.status_code = 200
+
+        self._dispatcher.dispatch(get_alert(), self.OUTPUT)
+
+        post_mock.assert_called_with(
+            'http://pagerduty.foo.bar/create_event.json',
+            headers=None,
+            json={
+                'event_action': 'trigger',
+                'client': 'StreamAlert',
+                'routing_key': 'mocked_routing_key',
+                'payload': {
+                    'custom_details': OrderedDict(
+                        [
+                            ('description', 'Info about this rule and what actions to take'),
+                            ('record', {
+                                'compressed_size': '9982',
+                                'node_id': '1',
+                                'cb_server': 'cbserver',
+                                'timestamp': '1496947381.18',
+                                'md5': '0F9AA55DA3BDE84B35656AD8911A22E1',
+                                'type': 'binarystore.file.added',
+                                'file_path': '/tmp/5DA/AD8/0F9AA55DA3BDE84B35656AD8911A22E1.zip',
+                                'size': '21504'
+                            })
+                        ]
+                    ),
+                    'source': 'carbonblack:binarystore.file.added',
+                    'severity': 'critical',
+                    'summary': 'StreamAlert Rule Triggered - cb_binarystore_file_added'
+                }
+            },
+            timeout=3.05,
+            verify=True
+        )
+
+
     @patch('logging.Logger.info')
     @patch('requests.post')
     def test_dispatch_success(self, post_mock, log_mock):
@@ -183,6 +225,21 @@ class TestPagerDutyIncidentOutput(object):
         assert_equal(endpoint, 'https://api.pagerduty.com/testtest')
 
     @patch('requests.get')
+    def test_check_exists_sends_correct_request(self, get_mock):
+        """PagerDutyIncidentOutput - Check Exists sends correct request"""
+        get_mock.return_value.status_code = 200
+
+        self._dispatcher._check_exists('filter', 'http://mock_url', 'check')
+
+        get_mock.assert_called_with(
+            'http://mock_url',
+            headers=None,
+            params={'query': 'filter'},
+            timeout=3.05,
+            verify=False
+        )
+
+    @patch('requests.get')
     def test_check_exists_get_id(self, get_mock):
         """PagerDutyIncidentOutput - Check Exists Get ID"""
         # GET /check
@@ -234,8 +291,24 @@ class TestPagerDutyIncidentOutput(object):
         assert_false(user_verified)
 
     @patch('requests.get')
-    def test_policy_verify_success_no_default(self, get_mock):
+    def test_policy_verify_sends_correct_request(self, get_mock):
         """PagerDutyIncidentOutput - Policy Verify Success (No Default)"""
+        # GET /escalation_policies
+        get_mock.return_value.status_code = 200
+
+        self._dispatcher._policy_verify('valid_policy', '')
+
+        get_mock.assert_called_with(
+            'https://api.pagerduty.com/escalation_policies',
+            headers=None,
+            params={'query': 'valid_policy'},
+            timeout=3.05,
+            verify=False
+        )
+
+    @patch('requests.get')
+    def test_policy_verify_success_no_default(self, get_mock):
+        """PagerDutyIncidentOutput - Policy Verify Sends Correct Request"""
         # GET /escalation_policies
         get_mock.return_value.status_code = 200
         json_check = {'escalation_policies': [{'id': 'good_policy_id'}]}
@@ -280,6 +353,22 @@ class TestPagerDutyIncidentOutput(object):
         assert_false(self._dispatcher._policy_verify('valid_policy', 'default_policy'))
 
     @patch('requests.get')
+    def test_service_verify_sends_correct_request(self, get_mock):
+        """PagerDutyIncidentOutput - Service Verify Sends Correct Request"""
+        # GET /services
+        get_mock.return_value.status_code = 200
+
+        self._dispatcher._service_verify('valid_service')
+
+        get_mock.assert_called_with(
+            'https://api.pagerduty.com/services',
+            headers=None,
+            params={'query': 'valid_service'},
+            timeout=3.05,
+            verify=False
+        )
+
+    @patch('requests.get')
     def test_service_verify_success(self, get_mock):
         """PagerDutyIncidentOutput - Service Verify Success"""
         # GET /services
@@ -301,6 +390,22 @@ class TestPagerDutyIncidentOutput(object):
         assert_false(self._dispatcher._service_verify('valid_service'))
 
     @patch('requests.get')
+    def test_item_verify_sends_correct_request(self, get_mock):
+        """PagerDutyIncidentOutput - Item Verify Send Correct Request"""
+        # GET /items
+        get_mock.return_value.status_code = 200
+
+        self._dispatcher._item_verify('valid_item', 'items', 'item_reference')
+
+        get_mock.assert_called_with(
+            'https://api.pagerduty.com/items',
+            headers=None,
+            params={'query': 'valid_item'},
+            timeout=3.05,
+            verify=False
+        )
+
+    @patch('requests.get')
     def test_item_verify_success(self, get_mock):
         """PagerDutyIncidentOutput - Item Verify Success"""
         # GET /items
@@ -314,6 +419,18 @@ class TestPagerDutyIncidentOutput(object):
         assert_equal(item_verified['type'], 'item_reference')
 
     @patch('requests.get')
+    def test_item_verify_fail(self, get_mock):
+        """PagerDutyIncidentOutput - Item Verify Fail"""
+        # /not_items
+        get_mock.return_value.status_code = 200
+        json_check = {'not_items': [{'not_id': 'verified_item_id'}]}
+        get_mock.return_value.json.return_value = json_check
+
+        item_verified = self._dispatcher._item_verify('http://mock_url', 'valid_item',
+                                                      'items', 'item_reference')
+        assert_false(item_verified)
+
+    @patch('requests.get')
     def test_item_verify_no_get_id_success(self, get_mock):
         """PagerDutyIncidentOutput - Item Verify No Get Id Success"""
         # GET /items
@@ -322,6 +439,24 @@ class TestPagerDutyIncidentOutput(object):
         get_mock.return_value.json.return_value = json_check
 
         assert_true(self._dispatcher._item_verify('valid_item', 'items', 'item_reference', False))
+
+    @patch('requests.get')
+    def test_priority_verify_sends_correct_reuqest(self, get_mock):
+        """PagerDutyIncidentOutput - Priority Verify Sends Correct Request"""
+        priority_name = 'priority_name'
+        # GET /priorities
+        get_mock.return_value.status_code = 200
+        context = {'incident_priority': priority_name}
+
+        self._dispatcher._priority_verify(context)
+
+        get_mock.assert_called_with(
+            'https://api.pagerduty.com/priorities',
+            headers=None,
+            params={},
+            timeout=3.05,
+            verify=False
+        )
 
     @patch('requests.get')
     def test_priority_verify_success(self, get_mock):
@@ -389,6 +524,22 @@ class TestPagerDutyIncidentOutput(object):
         assert_equal(priority_not_verified, dict())
 
     @patch('requests.get')
+    def test_incident_assignment_user_sends_correct_rquest(self, get_mock):
+        """PagerDutyIncidentOutput - Incident Assignment User Sends Correct Request"""
+        context = {'assigned_user': 'user_to_assign'}
+        get_mock.return_value.status_code = 200
+
+        self._dispatcher._incident_assignment(context)
+
+        get_mock.assert_called_with(
+            'https://api.pagerduty.com/users',
+            headers=None,
+            params={'query': 'user_to_assign'},
+            timeout=3.05,
+            verify=False
+        )
+
+    @patch('requests.get')
     def test_incident_assignment_user(self, get_mock):
         """PagerDutyIncidentOutput - Incident Assignment User"""
         context = {'assigned_user': 'user_to_assign'}
@@ -411,6 +562,22 @@ class TestPagerDutyIncidentOutput(object):
         assert_equal(assigned_key, 'escalation_policy')
         assert_equal(assigned_value['id'], 'policy_id_to_assign')
         assert_equal(assigned_value['type'], 'escalation_policy_reference')
+
+    @patch('requests.post')
+    def test_add_note_incident_sends_correct_request(self, post_mock):
+        """PagerDutyIncidentOutput - Add Note to Incident Sends Correct Request"""
+        post_mock.return_value.status_code = 200
+
+        self._dispatcher._add_incident_note('incident_id', 'this is the note')
+
+        post_mock.assert_called_with(
+            'https://api.pagerduty.com/incidents/incident_id/notes',
+            headers=None,
+            json={'note': {'content': 'this is the note'}},
+            timeout=3.05,
+            verify=True
+        )
+
 
     @patch('requests.post')
     def test_add_note_incident_success(self, post_mock):
@@ -456,17 +623,149 @@ class TestPagerDutyIncidentOutput(object):
 
         assert_false(note_id)
 
+    @patch('requests.put')
+    @patch('requests.post')
     @patch('requests.get')
-    def test_item_verify_fail(self, get_mock):
-        """PagerDutyIncidentOutput - Item Verify Fail"""
-        # /not_items
-        get_mock.return_value.status_code = 200
-        json_check = {'not_items': [{'not_id': 'verified_item_id'}]}
-        get_mock.return_value.json.return_value = json_check
+    def test_dispatch_sends_correct_create_request(self, get_mock, post_mock, put_mock):
+        """PagerDutyIncidentOutput - Dispatch Success, Good User, Sends Correct Create Request"""
+        # GET /users, /users
+        json_user = {'users': [{'id': 'valid_user_id'}]}
 
-        item_verified = self._dispatcher._item_verify('http://mock_url', 'valid_item',
-                                                      'items', 'item_reference')
-        assert_false(item_verified)
+        # GET /incidents
+        json_lookup = {'incidents': [{'id': 'incident_id'}]}
+
+        get_mock.return_value.status_code = 200
+        get_mock.return_value.json.side_effect = [json_user, json_user, json_lookup]
+
+        # POST /incidents, /v2/enqueue, /incidents/incident_id/notes
+        post_mock.return_value.status_code = 200
+        json_incident = {'incident': {'id': 'incident_id'}}
+        json_event = {'dedup_key': 'returned_dedup_key'}
+        json_note = {'note': {'id': 'note_id'}}
+        post_mock.return_value.json.side_effect = [json_incident, json_event, json_note]
+
+        # PUT /incidents/indicent_id/merge
+        put_mock.return_value.status_code = 200
+
+        ctx = {'pagerduty-incident': {'assigned_user': 'valid_user'}}
+
+        self._dispatcher.dispatch(get_alert(context=ctx), self.OUTPUT)
+
+        # Useful tidbit; for writing fixtures for implement multiple sequential calls, you can use
+        # mock.assert_has_calls() to render out all of the calls in order
+        post_mock.assert_any_call(
+            'https://api.pagerduty.com/incidents',
+            headers={
+                'From': 'email@domain.com', 'Content-Type': 'application/json',
+                'Authorization': 'Token token=mocked_token',
+                'Accept': 'application/vnd.pagerduty+json;version=2'},
+            json={
+                'incident': {
+                    'body': {'type': 'incident_body',
+                             'details': 'Info about this rule and what actions to take'},
+                    'service': {'type': 'service_reference', 'id': 'mocked_service_id'},
+                    'title': 'StreamAlert Incident - Rule triggered: cb_binarystore_file_added',
+                    'priority': {},
+                    'assignments': [
+                        {'assignee': {'type': 'user_reference', 'id': 'valid_user_id'}}],
+                    'type': 'incident'}},
+            timeout=3.05,
+            verify=True
+        )
+
+    @patch('requests.put')
+    @patch('requests.post')
+    @patch('requests.get')
+    def test_dispatch_sends_correct_enqueue_event_request(self, get_mock, post_mock, put_mock):
+        """PagerDutyIncidentOutput - Dispatch Success, Good User, Sends Correct Event Request"""
+        # GET /users, /users
+        json_user = {'users': [{'id': 'valid_user_id'}]}
+
+        # GET /incidents
+        json_lookup = {'incidents': [{'id': 'incident_id'}]}
+
+        get_mock.return_value.status_code = 200
+        get_mock.return_value.json.side_effect = [json_user, json_user, json_lookup]
+
+        # POST /incidents, /v2/enqueue, /incidents/incident_id/notes
+        post_mock.return_value.status_code = 200
+        json_incident = {'incident': {'id': 'incident_id'}}
+        json_event = {'dedup_key': 'returned_dedup_key'}
+        json_note = {'note': {'id': 'note_id'}}
+        post_mock.return_value.json.side_effect = [json_incident, json_event, json_note]
+
+        # PUT /incidents/indicent_id/merge
+        put_mock.return_value.status_code = 200
+
+        ctx = {'pagerduty-incident': {'assigned_user': 'valid_user'}}
+
+        self._dispatcher.dispatch(get_alert(context=ctx), self.OUTPUT)
+
+        post_mock.assert_any_call(
+            'https://events.pagerduty.com/v2/enqueue',
+            headers=None,  # FIXME (derek.wang) Verify is this correct??
+            json={
+                'event_action': 'trigger',
+                'client': 'StreamAlert',
+                'routing_key': 'mocked_key',
+                'payload': {
+                    'custom_details': OrderedDict([
+                        ('description', 'Info about this rule and what actions to take'),
+                        ('record', {
+                            'compressed_size': '9982',
+                            'node_id': '1',
+                            'cb_server': 'cbserver',
+                            'timestamp': '1496947381.18',
+                            'md5': '0F9AA55DA3BDE84B35656AD8911A22E1',
+                            'type': 'binarystore.file.added',
+                            'file_path': '/tmp/5DA/AD8/0F9AA55DA3BDE84B35656AD8911A22E1.zip',
+                            'size': '21504'
+                        })
+                    ]),
+                    'source': 'carbonblack:binarystore.file.added',
+                    'severity': 'critical',
+                    'summary': 'StreamAlert Rule Triggered - cb_binarystore_file_added'
+                }
+            },
+            timeout=3.05, verify=False
+        )
+
+    @patch('requests.put')
+    @patch('requests.post')
+    @patch('requests.get')
+    def test_dispatch_sends_correct_merge_request(self, get_mock, post_mock, put_mock):
+        """PagerDutyIncidentOutput - Dispatch Success, Good User, Sends Correct Merge Request"""
+        # GET /users, /users
+        json_user = {'users': [{'id': 'valid_user_id'}]}
+
+        # GET /incidents
+        json_lookup = {'incidents': [{'id': 'incident_id'}]}
+
+        get_mock.return_value.status_code = 200
+        get_mock.return_value.json.side_effect = [json_user, json_user, json_lookup]
+
+        # POST /incidents, /v2/enqueue, /incidents/incident_id/notes
+        post_mock.return_value.status_code = 200
+        json_incident = {'incident': {'id': 'incident_id'}}
+        json_event = {'dedup_key': 'returned_dedup_key'}
+        json_note = {'note': {'id': 'note_id'}}
+        post_mock.return_value.json.side_effect = [json_incident, json_event, json_note]
+
+        # PUT /incidents/indicent_id/merge
+        put_mock.return_value.status_code = 200
+
+        ctx = {'pagerduty-incident': {'assigned_user': 'valid_user'}}
+
+        self._dispatcher.dispatch(get_alert(context=ctx), self.OUTPUT)
+
+        put_mock.assert_called_with(
+            'https://api.pagerduty.com/incidents/incident_id/merge',
+            headers={'From': 'email@domain.com', 'Content-Type': 'application/json',
+                     'Authorization': 'Token token=mocked_token',
+                     'Accept': 'application/vnd.pagerduty+json;version=2'},
+            json={'source_incidents': [{'type': 'incident_reference', 'id': 'incident_id'}]},
+            timeout=3.05, verify=False
+        )
 
     @patch('logging.Logger.info')
     @patch('requests.put')
