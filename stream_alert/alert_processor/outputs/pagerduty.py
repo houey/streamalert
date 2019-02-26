@@ -43,7 +43,11 @@ SEVERITY_UNKNOWN = ''
 
 
 class EventsV2DataProvider(object):
-    """This class is meant to be mixed-into pagerduty outputs that integrate with v2 of the API"""
+    """This class is meant to be mixed-into pagerduty outputs that integrate with v2 of the API
+
+    This is called the CommonEventFormat (PD-CEF). Documentation can be found here:
+    https://support.pagerduty.com/docs/pd-cef
+    """
 
     def events_v2_data(self, alert, descriptor, routing_key, with_record=True):
         """Helper method to generate the payload to create an event using PagerDuty Events API v2
@@ -169,7 +173,10 @@ class PagerDutyOutput(OutputDispatcher):
 
 @StreamAlertOutput
 class PagerDutyOutputV2(OutputDispatcher, EventsV2DataProvider):
-    """PagerDutyOutput handles all alert dispatching for PagerDuty Events API v2"""
+    """PagerDutyOutput handles all alert dispatching for PagerDuty Events API v2
+
+    API documentation can be found here: https://v2.developer.pagerduty.com/docs/events-api-v2
+    """
     __service__ = 'pagerduty-v2'
 
     @classmethod
@@ -237,7 +244,10 @@ class PagerdutySearchDelay(Exception):
 
 @StreamAlertOutput
 class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
-    """PagerDutyIncidentOutput handles all alert dispatching for PagerDuty Incidents API v2"""
+    """PagerDutyIncidentOutput handles all alert dispatching for PagerDuty Incidents API v2
+
+    API documentation can be found here: https://v2.developer.pagerduty.com/docs/rest-api
+    """
     __service__ = 'pagerduty-incident'
     INCIDENTS_ENDPOINT = 'incidents'
     USERS_ENDPOINT = 'users'
@@ -321,26 +331,6 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
             str: Full URL of the provided endpoint
         """
         return os.path.join(base_url, endpoint)
-
-    def _create_event(self, data):
-        """Helper to create an event in the PagerDuty Events API v2
-
-        Args:
-            data (dict): JSON blob with the format of the PagerDuty Events API v2
-        Returns:
-            dict: Contains the HTTP response of the request to the API
-        """
-        url = 'https://events.pagerduty.com/v2/enqueue'
-        try:
-            resp = self._post_request_retry(url, data, None, False)
-        except OutputRequestFailure:
-            return False
-
-        response = resp.json()
-        if not response:
-            return False
-
-        return response
 
     @backoff.on_exception(backoff.constant,
                           PagerdutySearchDelay,
@@ -452,8 +442,12 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
         # If there are results, get the first occurence from the list
         return target_element[0].get('id', False)
 
+    def _user_email_exists(self, user):
+        client = self._rest_api_client()
+        # FIXME (derek.wang)
+
     def _user_verify(self, user, get_id=True):
-        """Method to verify the existance of an user with the API
+        """Method to verify the existence of an user with the API
         Args:
             user (str): User to query about in the API.
             get_id (boolean): Whether to generate a dict with result and reference
@@ -482,7 +476,7 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
                                  'escalation_policy_reference')
 
     def _service_verify(self, service):
-        """Method to verify the existance of a service with the API
+        """Method to verify the existence of a service with the API
 
         Args:
             service (str): Service to query about in the API
@@ -494,7 +488,7 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
         return self._item_verify(service, self.SERVICES_ENDPOINT, 'service_reference')
 
     def _item_verify(self, item_str, item_key, item_type, get_id=True):
-        """Method to verify the existance of an item with the API
+        """Method to verify the existence of an item with the API
         Args:
             item_str (str): Service to query about in the API
             item_key (str): Endpoint/key to be extracted from search results
@@ -515,76 +509,6 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
 
         return item_id
 
-    def _priority_verify(self, context):
-        """Method to verify the existance of a incident priority with the API
-
-        Args:
-            context (dict): Context provided in the alert record
-
-        Returns:
-            dict: JSON object be used in the API call, containing the priority id
-                  and the priority reference, empty if it fails or it does not exist
-        """
-        if not context:
-            return dict()
-
-        priority_name = context.get('incident_priority', False)
-        if not priority_name:
-            return dict()
-
-        priorities_url = self._get_endpoint(self._base_url, self.PRIORITIES_ENDPOINT)
-
-        try:
-            resp = self._get_request_retry(priorities_url, {}, self._headers, False)
-        except OutputRequestFailure:
-            return dict()
-
-        response = resp.json()
-        if not response:
-            return dict()
-
-        priorities = response.get('priorities', [])
-
-        if not priorities:
-            return dict()
-
-        # If the requested priority is in the list, get the id
-        priority_id = next(
-            (item for item in priorities if item["name"] == priority_name), {}).get('id', False)
-
-        # If the priority id is found, compose the JSON
-        if priority_id:
-            return {'id': priority_id, 'type': 'priority_reference'}
-
-        return dict()
-
-    def _incident_assignment(self, context):
-        """Method to determine if the incident gets assigned to a user or an escalation policy
-
-        Args:
-            context (dict): Context provided in the alert record
-
-        Returns:
-            tuple: assigned_key (str), assigned_value (dict to assign incident to an escalation
-            policy or array of dicts to assign incident to users)
-        """
-        # Check if a user to assign the incident is provided
-        user_to_assign = context.get('assigned_user', False)
-
-        # If provided, verify the user and get the id from API
-        if user_to_assign:
-            user_assignee = self._user_verify(user_to_assign)
-            # User is verified, return tuple
-            if user_assignee:
-                return 'assignments', [{'assignee': user_assignee}]
-
-        # If escalation policy ID was not provided, use default one
-        policy_id_to_assign = context.get('assigned_policy_id', self._escalation_policy_id)
-
-        # Assinged to escalation policy ID, return tuple
-        return 'escalation_policy', {
-            'id': policy_id_to_assign, 'type': 'escalation_policy_reference'}
-
     def _add_incident_note(self, incident_id, note):
         """Method to add a text note to the provided incident id
 
@@ -594,25 +518,24 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
         Returns:
             str: ID of the note after being added to the incident or False if it fails
         """
-        notes_path = '{}/{}/notes'.format(self.INCIDENTS_ENDPOINT, incident_id)
-        incident_notes_url = self._get_endpoint(self._base_url, notes_path)
-        data = {
-            'note': {
-                'content': note
-            }
-        }
-        try:
-            resp = self._post_request_retry(incident_notes_url, data, self._headers, True)
-        except OutputRequestFailure:
+        note = self._rest_api_client().add_note(incident_id, note)
+        if not note:
             return False
 
-        response = resp.json()
-        if not response:
-            return False
+        return note.get('id', False)
 
-        note_rec = response.get('note', {})
+    def _setup_api_client(self, creds):
+        self._api_client = token = creds['token'] if 'token' in creds else ''
+        email_from = creds['email_from'] if 'email_from' in creds else ''
+        http = JsonHttpProvider(self)
+        self._api_client = PagerDutyRestApiClient(token, email_from, http)
 
-        return note_rec.get('id', False)
+    def _rest_api_client(self):
+        return self._api_client
+
+    def _events_api_client(self):
+        http = JsonHttpProvider(self)
+        return PagerDutyEventsV2ApiClient(http)
 
     def _dispatch(self, alert, descriptor):
         """Send incident to Pagerduty Incidents API v2
@@ -624,124 +547,470 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
         Returns:
             bool: True if alert was sent successfully, False otherwise
         """
+        class WorkContext(object):
+            def __init__(self, output_dispatcher, credentials, descriptor):
+                self._output = output_dispatcher
+                self._credentials = credentials
+                self._descriptor = descriptor
+
+                self._email_from = self._credentials['email_from']
+                self._escalation_policy_id = self._credentials['escalation_policy_id']
+                self._incident_service = self._credentials['service_id']
+
+                http = JsonHttpProvider(output_dispatcher)
+                self._api_client = PagerDutyRestApiClient(
+                    self._credentials['token'],
+                    self._credentials['email_from'],
+                    http
+                )
+                self._events_client = PagerDutyEventsV2ApiClient(http)
+
+            def run(self, alert):
+                if not self.verify_user_exists():
+                    return False
+
+                # Extracting context data to assign the incident
+                publication = compose_alert(alert, self._output, descriptor)
+
+                rule_context = alert.context
+                if rule_context:
+                    rule_context = rule_context.get(self._output.__service__, {})
+
+                # Presentation defaults
+                default_incident_title = 'StreamAlert Incident - Rule triggered: {}'.format(
+                    alert.rule_name)
+                default_incident_body = {
+                    'type': 'incident_body',
+                    'details': alert.rule_description,
+                }
+
+                # Override presentation defaults with publisher fields
+                incident_title = publication.get(
+                    'pagerduty-incident.incident_title',
+                    default_incident_title
+                )
+                incident_body = publication.get('pagerduty-incident.incident_body',
+                                                default_incident_body)
+
+                # FIXME (derek.wang) use publisher to set priority instead of context
+                # Use the priority provided in the context, use it or the incident will be low priority
+                incident_priority = self.get_standardized_priority(rule_context)
+
+                # FIXME (derek.wang) use publisher to set priority instead of context
+                # Incident assignment goes in this order:
+                #  Provided user -> provided policy -> default policy
+                assigned_key, assigned_value = self.get_incident_assignment(rule_context)
+
+                # Using the service ID for the PagerDuty API
+                incident_service = {'id': self._incident_service, 'type': 'service_reference'}
+                incident_data = {
+                    'incident': {
+                        'type': 'incident',
+                        'title': incident_title,
+                        'service': incident_service,
+                        'priority': incident_priority,
+                        'body': incident_body,
+                        assigned_key: assigned_value
+                    }
+                }
+
+                incident = self._api_client.create_incident(incident_data)
+
+                if not incident:
+                    LOGGER.error('Could not create main incident, %s', self._output.__service__)
+                    return False
+
+                # Extract the incident id from the incident that was just created
+                incident_id = incident.get('id')
+
+                # Create alert to hold all the incident details
+                with_record = rule_context.get('with_record', True)
+                event_data = self._output.events_v2_data(
+                    alert,
+                    descriptor,
+                    self._credentials['integration_key'],
+                    with_record
+                )
+
+                event = self._events_client.enqueue_event(event_data)
+                if not event:
+                    LOGGER.error('Could not create incident event, %s', self._output.__service__)
+                    return False
+
+                # Lookup the incident_key returned as dedup_key to get the incident id
+                incident_key = event.get('dedup_key')
+
+                if not incident_key:
+                    LOGGER.error('Could not get incident key, %s', self._output.__service__)
+                    return False
+
+                # Keep that id to be merged later with the created incident
+                event_incident = self._api_client.get_incident_by_key(incident_key)
+                if not event_incident:
+                    raise PagerdutySearchDelay()
+
+                event_incident_id = event_incident.get('id')
+
+                # Merge the incident with the event, so we can have a rich context incident
+                # assigned to a specific person, which the PagerDuty REST API v2 does not allow
+
+                merged_incident = self._api_client.merge_incident(incident_id, event_incident_id)
+
+                # Add a note to the combined incident to help with triage
+                if not merged_incident:
+                    LOGGER.error('Could not add note to incident, %s', self._output.__service__)
+                else:
+                    merged_id = merged_incident.get('id')
+                    note = rule_context.get('note', 'Creating SOX Incident')
+                    self._api_client.add_note(merged_id, note)
+
+                return True
+
+            def verify_user_exists(self):
+                # Get user email to be added as From header and verify
+                user = self._api_client.get_user_by_email(self._email_from)
+
+                if not user:
+                    LOGGER.error(
+                        'Could not verify header From: %s, %s',
+                        self._email_from,
+                        self._output.__service__
+                    )
+                    return False
+
+                return True
+
+            def get_standardized_priority(self, context):
+                """Method to verify the existance of a incident priority with the API
+
+                Args:
+                    context (dict): Context provided in the alert record
+
+                Returns:
+                    dict: JSON object be used in the API call, containing the priority id
+                          and the priority reference, empty if it fails or it does not exist
+                """
+                if not context:
+                    return dict()
+
+                priority_name = context.get('incident_priority', False)
+                if not priority_name:
+                    return dict()
+
+                priorities = self._api_client.get_priorities()
+
+                if not priorities:
+                    return dict()
+
+                # If the requested priority is in the list, get the id
+                priority_id = next(
+                    (item for item in priorities if item["name"] == priority_name), {}).get('id',
+                                                                                            False)
+                # If the priority id is found, compose the JSON
+                if priority_id:
+                    return {'id': priority_id, 'type': 'priority_reference'}
+
+                return dict()
+
+            def get_incident_assignment(self, context):
+                """Method to determine if the incident gets assigned to a user or an escalation policy
+
+                Args:
+                    context (dict): Context provided in the alert record
+
+                Returns:
+                    tuple: assigned_key (str), assigned_value (dict to assign incident to an escalation
+                    policy or array of dicts to assign incident to users)
+                """
+                # Check if a user to assign the incident is provided
+                user_to_assign = context.get('assigned_user', False)
+
+                # If provided, verify the user and get the id from API
+                if user_to_assign:
+                    user = self._api_client.get_user_by_email(user_to_assign)
+                    if user and user.get('id'):
+                        return 'assignments', [{'assignee': {
+                            'id': user.get('id'),
+                            'type': 'user_reference',
+                        }}]
+
+                # If escalation policy ID was not provided, use default one
+                policy_id_to_assign = context.get('assigned_policy_id', self._escalation_policy_id)
+
+                # Assinged to escalation policy ID, return tuple
+                return 'escalation_policy', {
+                    'id': policy_id_to_assign, 'type': 'escalation_policy_reference'}
+
+
         creds = self._load_creds(descriptor)
         if not creds:
-            return False
+            return
 
-        # Cache base_url
-        self._base_url = creds['api']
+        work = WorkContext(self, creds, descriptor)
+        return work.run(alert)
 
-        # Preparing headers for API calls
-        self._headers = {
-            'Accept': 'application/vnd.pagerduty+json;version=2',
-            'Content-Type': 'application/json',
-            'Authorization': 'Token token={}'.format(creds['token'])
-        }
 
-        # Get user email to be added as From header and verify
-        user_email = creds['email_from']
-        if not self._user_verify(user_email, False):
-            LOGGER.error('Could not verify header From: %s, %s', user_email, self.__service__)
-            return False
+class JsonHttpProvider(object):
+    def __init__(self, output_dispatcher):
+        self._output_dispatcher = output_dispatcher
 
-        # Add From to the headers after verifying
-        self._headers['From'] = user_email
-
-        # Cache default escalation policy
-        self._escalation_policy_id = creds['escalation_policy_id']
-
-        # Extracting context data to assign the incident
-        publication = compose_alert(alert, self, descriptor)
-
-        rule_context = alert.context
-        if rule_context:
-            rule_context = rule_context.get(self.__service__, {})
-
-        # Presentation defaults
-        default_incident_title = 'StreamAlert Incident - Rule triggered: {}'.format(
-            alert.rule_name
-        )
-        default_incident_body = {
-            'type': 'incident_body',
-            'details': alert.rule_description,
-        }
-
-        # Override presentation defaults with publisher fields
-        incident_title = publication.get(
-            'pagerduty-incident.incident_title',
-            default_incident_title
-        )
-        incident_body = publication.get('pagerduty-incident.incident_body', default_incident_body)
-
-        # FIXME (derek.wang) use publisher to set priority instead of context
-        # Use the priority provided in the context, use it or the incident will be low priority
-        incident_priority = self._priority_verify(rule_context)
-
-        # FIXME (derek.wang) use publisher to set priority instead of context
-        # Incident assignment goes in this order:
-        #  Provided user -> provided policy -> default policy
-        assigned_key, assigned_value = self._incident_assignment(rule_context)
-
-        # Using the service ID for the PagerDuty API
-        incident_service = {'id': creds['service_id'], 'type': 'service_reference'}
-        incident_data = {
-            'incident': {
-                'type': 'incident',
-                'title': incident_title,
-                'service': incident_service,
-                'priority': incident_priority,
-                'body': incident_body,
-                assigned_key: assigned_value
-            }
-        }
-        incidents_url = self._get_endpoint(self._base_url, self.INCIDENTS_ENDPOINT)
-
+    def get(self, url, params, headers=None, verify=False):
         try:
-            incident = self._post_request_retry(incidents_url, incident_data, self._headers, True)
+            result = self._output_dispatcher._get_request_retry(url, params, headers, verify)
         except OutputRequestFailure:
-            incident = False
+            return False
+
+        if not result:
+            return False
+
+        response = result.json()
+        if not response:
+            return False
+
+        return response
+
+    def post(self, url, data, headers=None, verify=False):
+        try:
+            result = self._output_dispatcher._post_request_retry(url, data, headers, verify)
+        except OutputRequestFailure:
+            return False
+
+        if not result:
+            return False
+
+        response = result.json()
+        if not response:
+            return False
+
+        return response
+
+    def put(self, url, params, headers=None, verify=False):
+        try:
+            result = self._output_dispatcher._put_request_retry(url, params, headers, verify)
+        except OutputRequestFailure:
+            return False
+
+        if not result:
+            return False
+
+        response = result.json()
+        if not response:
+            return False
+
+        return response
+
+
+class PagerDutyRestApiClient(object):
+    """Service for finding URLs of various resources on the REST API"""
+
+    REST_API_BASE_URL = 'https://api.pagerduty.com'
+
+    def __init__(self, authorization_token, user_email, http_provider):
+        self._authorization_token = authorization_token
+        self._user_email = user_email
+        self._http_provider = http_provider  # type: JsonHttpProvider
+
+    def verify_from_user_email(self):
+        pass
+
+    def get_user_by_email(self, user_email):
+        """
+
+        """
+        response = self._http_provider.get(
+            self._get_users_url(),
+            {
+                'query': user_email,
+            },
+            self._construct_headers(True),
+            True
+        )
+        if not response:
+            return False
+
+        users = response.get('users', [])
+        return users[0] if users else False
+
+    def get_incident_by_key(self, incident_key):
+        query = {
+            'incident_key': incident_key
+        }
+
+        incidents = self._http_provider.get(
+            self._get_incidents_url(),
+            query,
+            headers=self._construct_headers()
+        )
+
+        if not incidents:
+            return False
+
+        incidents = incidents.get('incidents', [])
+
+        return incidents[0] if incidents else False
+
+    def get_priorities(self):
+        priorities = self._http_provider.get(
+            self._get_priorities_url(),
+            None,
+            headers=self._construct_headers(),
+            # (derek.wang) it is not clear to me why this is the case but it was intentionally
+            # chosen to perform SSL verification on this POST endpoint and to not verify on
+            # all other endpoints.
+            verify=True
+        )
+
+        if not priorities:
+            return False
+
+        return priorities.get('priorities', [])
+
+    def merge_incident(self, parent_incident_id, merged_incident_id):
+        data = {
+            'source_incidents': [
+                {
+                    'id': merged_incident_id,
+                    'type': 'incident_reference'
+                }
+            ]
+        }
+        merged_incident = self._http_provider.put(
+            self._get_incident_merge_url(parent_incident_id),
+            data,
+            headers=self._construct_headers(),
+            verify=False
+        )
+        if not merged_incident:
+            return False
+
+        return merged_incident.get('incident', False)
+
+    def create_incident(self, incident_data):
+        """Creates a new incident
+
+        Returns the incident json representation on success, or False on failure.
+
+        Reference: https://api-reference.pagerduty.com/#!/Incidents/post_incidents
+
+        Args:
+            incident_data (dict)
+
+        Returns:
+            dict
+        """
+        incident = self._http_provider.post(
+            self._get_incidents_url(),
+            incident_data,
+            headers=self._construct_headers(),
+            # (derek.wang) it is not clear to me why this is the case but it was intentionally
+            # chosen to perform SSL verification on this POST endpoint and to not verify on
+            # all other endpoints.
+            verify=True
+        )
 
         if not incident:
-            LOGGER.error('Could not create main incident, %s', self.__service__)
             return False
 
-        # Extract the json blob from the response, returned by self._post_request_retry
-        incident_json = incident.json()
-        if not incident_json:
+        return incident.get('incident', False)
+
+    def add_note(self, incident_id, note):
+        """Method to add a text note to the provided incident id
+
+        Returns the note json representation on success, or False on failure.
+
+        Reference: https://api-reference.pagerduty.com/#!/Incidents/post_incidents_id_notes
+
+        Args:
+            incident_id (str): ID of the incident to add the note to
+
+        Returns:
+            str: ID of the note after being added to the incident or False if it fails
+        """
+        note = self._http_provider.post(
+            self._get_incident_notes_url(incident_id),
+            {
+                'note': {
+                    'content': note,
+                }
+            },
+            self._construct_headers(),
+            # (derek.wang) it is not clear to me why this is the case but it was intentionally
+            # chosen to perform SSL verification on this POST endpoint and to not verify on
+            # all other endpoints.
+            verify=True
+        )
+
+        if not note:
             return False
 
-        # Extract the incident id from the incident that was just created
-        incident_id = incident_json.get('incident', {}).get('id')
+        return note.get('note', False)
 
-        # Create alert to hold all the incident details
-        with_record = rule_context.get('with_record', True)
-        event_data = self.events_v2_data(alert, descriptor, creds['integration_key'], with_record)
-        event = self._create_event(event_data)
-        if not event:
-            LOGGER.error('Could not create incident event, %s', self.__service__)
-            return False
+    def _construct_headers(self, omit_email=False):
+        headers = {
+            'Accept': 'application/vnd.pagerduty+json;version=2',
+            'Content-Type': 'application/json',
+            'Authorization': 'Token token={}'.format(self._authorization_token)
+        }
+        if not omit_email:
+            headers['From'] = self._user_email
 
-        # Lookup the incident_key returned as dedup_key to get the incident id
-        incident_key = event.get('dedup_key')
+        return headers
 
-        if not incident_key:
-            LOGGER.error('Could not get incident key, %s', self.__service__)
-            return False
+    def _get_priorities_url(self):
+        return '{base_url}/priorities'.format(base_url=self.REST_API_BASE_URL)
 
-        # Keep that id to be merged later with the created incident
-        event_incident_id = self._get_event_incident_id(incident_key)
+    def _get_incidents_url(self):
+        return '{base_url}/incidents'.format(base_url=self.REST_API_BASE_URL)
 
-        # Merge the incident with the event, so we can have a rich context incident
-        # assigned to a specific person, which the PagerDuty REST API v2 does not allow
-        merging_url = '{}/{}/merge'.format(incidents_url, incident_id)
-        merged = self._merge_incidents(merging_url, event_incident_id)
+    def _get_incident_url(self, incident_id):
+        return '{incidents_url}/{incident_id}'.format(
+            incidents_url=self._get_incidents_url(),
+            incident_id=incident_id
+        )
 
-        # Add a note to the combined incident to help with triage
-        if not merged:
-            LOGGER.error('Could not add note to incident, %s', self.__service__)
-        else:
-            merged_id = merged.get('incident', {}).get('id')
-            note = rule_context.get('note', 'Creating SOX Incident')
-            self._add_incident_note(merged_id, note)
+    def _get_incident_merge_url(self, incident_id):
+        return '{incident_url}/merge'.format(incident_url=self._get_incident_url(incident_id))
 
-        return True
+    def _get_incident_notes_url(self, incident_id):
+        return '{incident_url}/notes'.format(incident_url=self._get_incident_url(incident_id))
+
+    def _get_users_url(self):
+        return '{base_url}/users'.format(base_url=self.REST_API_BASE_URL)
+
+
+class PagerDutyEventsV2ApiClient(object):
+    """Service for finding URLs of various resources on the Events v2 API
+
+    Documentation on Events v2 API: https://v2.developer.pagerduty.com/docs/events-api-v2
+    """
+
+    EVENTS_V2_API_BASE_URL = 'https://events.pagerduty.com/v2'
+
+    def __init__(self, http_provider):
+        self._http_provider = http_provider  # type: JsonHttpProvider
+
+    def enqueue_event(self, event_data):
+        """Enqueues a new event.
+
+        Returns the event json representation on success, or False on failure.
+
+        Note: For API v2, all authentication information is baked directly into the event_data,
+        rather than being provided in the headers.
+        """
+        return self._http_provider.post(
+            self._get_event_enqueue_v2_url(),
+            event_data,
+            headers=None
+        )
+
+    def _get_event_enqueue_v2_url(self):
+        return '{}/enqueue'.format(self.EVENTS_V2_API_BASE_URL)
+
+
+class PagerDutyEventsV1ApiClient(object):
+    """Service for finding URLs of various resources on the Events v1 API"""
+
+    EVENTS_V1_API_BASE_URL = 'https://events.pagerduty.com/generic/2010-04-15/create_event.json'
+
+
+

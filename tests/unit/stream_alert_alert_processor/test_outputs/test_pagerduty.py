@@ -656,19 +656,33 @@ class TestPagerDutyIncidentOutput(object):
         post_mock.assert_any_call(
             'https://api.pagerduty.com/incidents',
             headers={
-                'From': 'email@domain.com', 'Content-Type': 'application/json',
+                'From': 'email@domain.com',
+                'Content-Type': 'application/json',
                 'Authorization': 'Token token=mocked_token',
                 'Accept': 'application/vnd.pagerduty+json;version=2'},
             json={
                 'incident': {
-                    'body': {'type': 'incident_body',
-                             'details': 'Info about this rule and what actions to take'},
-                    'service': {'type': 'service_reference', 'id': 'mocked_service_id'},
+                    'body': {
+                        'type': 'incident_body',
+                        'details': 'Info about this rule and what actions to take'
+                    },
+                    'service': {
+                        'type': 'service_reference',
+                        'id': 'mocked_service_id'
+                    },
                     'title': 'StreamAlert Incident - Rule triggered: cb_binarystore_file_added',
                     'priority': {},
                     'assignments': [
-                        {'assignee': {'type': 'user_reference', 'id': 'valid_user_id'}}],
-                    'type': 'incident'}},
+                        {
+                            'assignee': {
+                                'type': 'user_reference',
+                                'id': 'valid_user_id'
+                            }
+                        }
+                    ],
+                    'type': 'incident'
+                }
+            },
             timeout=3.05,
             verify=True
         )
@@ -727,7 +741,8 @@ class TestPagerDutyIncidentOutput(object):
                     'summary': 'StreamAlert Rule Triggered - cb_binarystore_file_added'
                 }
             },
-            timeout=3.05, verify=False
+            timeout=3.05,
+            verify=False
         )
 
     @patch('requests.put')
@@ -764,7 +779,8 @@ class TestPagerDutyIncidentOutput(object):
                      'Authorization': 'Token token=mocked_token',
                      'Accept': 'application/vnd.pagerduty+json;version=2'},
             json={'source_incidents': [{'type': 'incident_reference', 'id': 'incident_id'}]},
-            timeout=3.05, verify=False
+            timeout=3.05,
+            verify=False
         )
 
     @patch('logging.Logger.info')
@@ -840,20 +856,62 @@ class TestPagerDutyIncidentOutput(object):
          # GET /priorities, /users
         json_user = {'users': [{'id': 'user_id'}]}
         json_priority = {'priorities': [{'id': 'priority_id', 'name': 'priority_name'}]}
+        json_lookup = {'incidents': [{'id': 'incident_id'}]}
 
         # GET /incidents
-        json_lookup = {'incidents': [{'id': 'incident_id'}]}
+        # def mock_get_response(*args, **kwargs):
+        #     if args[0] == 'https://api.pagerduty.com/users':
+        #         json = json_user
+        #     elif args[0] == 'https://api.pagerduty.com/incidents':
+        #         json = json_incident
+        #     elif args[0] == 'https://api.pagerduty.com/priorities':
+        #         json = json_priority
+        #     else:
+        #         raise RuntimeError('Unregistered: {}'.format(args[0]))
+        #
+        #     mock = MagicMock()
+        #     mock.status_code = 200
+        #     mock.json.return_value = json
+        #     return mock
+        #
+        #
+        # get_mock.side_effect = mock_get_response
+
+
+        def setup_post_mock(mock, json_incident, json_event, json_note):
+            def post(*args, **kwargs):
+                url = args[0]
+                if url == 'https://api.pagerduty.com/incidents':
+                    response = json_incident
+                elif url == 'https://events.pagerduty.com/v2/enqueue':
+                    response = json_event
+                elif (
+                    url.startswith('https://api.pagerduty.com/incidents/') and
+                    url.endswith('/notes')
+                ):
+                    response = json_note
+                else:
+                    raise RuntimeError('Misconfigured mock: {}'.format(url))
+
+                _mock = MagicMock()
+                _mock.status_code = 200
+                _mock.json.return_value = response
+                return _mock
+
+            mock.side_effect = post
+
         get_mock.return_value.status_code = 200
         get_mock.return_value.json.side_effect = [json_user, json_priority, json_lookup]
 
-        # POST /incidents, /v2/enqueue, /incidents/incident_id/notes
-        post_mock.return_value.status_code = 200
+        # POST /incidents, /v2/enqueue, /incidents/{incident_id}/notes
         json_incident = {'incident': {'id': 'incident_id'}}
         json_event = {'dedup_key': 'returned_dedup_key'}
         json_note = {'note': {'id': 'note_id'}}
-        post_mock.return_value.json.side_effect = [json_incident, json_event, json_note]
+        # post_mock.return_value.status_code = 200
+        # post_mock.return_value.json.side_effect = [json_incident, json_event, json_note]
+        setup_post_mock(post_mock, json_incident, json_event, json_note)
 
-        # PUT /incidents/indicent_id/merge
+        # PUT /incidents/{incident_id}/merge
         put_mock.return_value.status_code = 200
 
         ctx = {
