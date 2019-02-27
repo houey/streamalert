@@ -59,10 +59,6 @@ class Summary(AlertPublisher):
                     'title': rule_name,
                     'title_link': self._title_url(rule_name),
                     'text': cgi.escape(rule_presentation['description']),
-                    'fields': map(
-                        lambda(key): {'title': key, 'value': rule_presentation['fields'][key]},
-                        rule_presentation['fields'].keys()
-                    ),
                     'image_url': '',
                     'thumb_url': '',
                     'footer': '',
@@ -128,7 +124,10 @@ class AttachRuleInfo(AlertPublisher):
         publication['slack.attachments'].append({
             'color': self._color(),
             'fields': map(
-                lambda (key): {'title': key, 'value': rule_presentation['fields'][key]},
+                lambda (key): {
+                    'title': key.capitalize(),
+                    'value': rule_presentation['fields'][key]
+                },
                 rule_presentation['fields'].keys()
             )
         })
