@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-# pylint: disable=protected-access,attribute-defined-outside-init,too-many-lines
+# pylint: disable=protected-access,attribute-defined-outside-init,too-many-lines,invalid-name
 from collections import OrderedDict
 
 from mock import patch, PropertyMock, Mock, MagicMock
@@ -482,8 +482,8 @@ class TestPagerDutyIncidentOutput(object):
                 elif url == 'https://events.pagerduty.com/v2/enqueue':
                     response = json_event
                 elif (
-                    url.startswith('https://api.pagerduty.com/incidents/') and
-                    url.endswith('/notes')
+                        url.startswith('https://api.pagerduty.com/incidents/') and
+                        url.endswith('/notes')
                 ):
                     response = json_note
                 else:

@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 from collections import OrderedDict
-import os
 import backoff
 
 from stream_alert.alert_processor.helpers import compose_alert
@@ -553,6 +552,7 @@ class WorkContext(object):
             'id': policy_id_to_assign, 'type': 'escalation_policy_reference'}
 
 
+# pylint: disable=too-many-public-methods
 class JsonHttpProvider(object):
     def __init__(self, output_dispatcher):
         self._output_dispatcher = output_dispatcher
