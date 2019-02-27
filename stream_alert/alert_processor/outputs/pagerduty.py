@@ -470,7 +470,12 @@ class WorkContext(object):
                           on_success=success_handler(),
                           on_giveup=giveup_handler())
     def get_incident_id_from_event_incident_key(self, incident_key):
-        # Keep that id to be merged later with the created incident
+        """Queries the API to get the incident id from an incident key
+
+        When creating an EVENT from the events-v2 API, events are created alongside an incident,
+        but only an incident_key is returned, which is not the same as the incident's REST API
+        resource id.
+        """
         event_incident = self._api_client.get_incident_by_key(incident_key)
         if not event_incident:
             raise PagerdutySearchDelay()# FIXME (derek.wang) test-coverage
@@ -478,7 +483,7 @@ class WorkContext(object):
         return event_incident.get('id')
 
     def verify_user_exists(self):
-        # Get user email to be added as From header and verify
+        """Verifies that the 'email_from' provided in the creds is valid and exists."""
         user = self._api_client.get_user_by_email(self._email_from)
 
         if not user:
@@ -627,9 +632,17 @@ class SslVerifiable(object):
         self._host_ssl_verified = False
 
     def _should_do_ssl_verify(self):
+        """Returns whether or not the client should perform SSL host cert verification"""
         return not self._host_ssl_verified
 
     def _update_ssl_verified(self, response):
+        """
+        Args:
+            response (dict|bool): A return value from JsonHttpProvider
+
+        Returns:
+            dict|bool: Simply returns the response as-is
+        """
         if response is not False:
             self._host_ssl_verified = True
 
@@ -637,9 +650,9 @@ class SslVerifiable(object):
 
 
 class PagerDutyRestApiClient(SslVerifiable):
-    """Service for finding URLs of various resources on the REST API
+    """API Client class for the PagerDuty REST API
 
-
+    API Documentation can be found here: https://v2.developer.pagerduty.com/docs/rest-api
     """
 
     REST_API_BASE_URL = 'https://api.pagerduty.com'
@@ -655,7 +668,7 @@ class PagerDutyRestApiClient(SslVerifiable):
     def get_user_by_email(self, user_email):
         """Fetches a pagerduty user by an email address.
 
-        Returns false on failure or if no user is found
+        Returns false on failure or if no user is found.
         """
         response = self._http_provider.get(
             self._get_users_url(),
@@ -886,7 +899,10 @@ class PagerDutyEventsV2ApiClient(SslVerifiable):
 
 
 class PagerDutyEventsV1ApiClient(SslVerifiable):
-    """Service for finding URLs of various resources on the Events v1 API"""
+    """Service for finding URLs of various resources on the Events v1 API
+
+    API Documentation can be found here: https://v2.developer.pagerduty.com/docs/events-api
+    """
 
     EVENTS_V1_API_ENDPOINT = 'https://events.pagerduty.com/generic/2010-04-15/create_event.json'
 
