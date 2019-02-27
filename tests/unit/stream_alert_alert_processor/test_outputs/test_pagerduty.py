@@ -66,6 +66,29 @@ class TestPagerDutyOutput(object):
         log_mock.assert_called_with('Successfully sent alert to %s:%s',
                                     self.SERVICE, self.DESCRIPTOR)
 
+        post_mock.assert_called_with(
+            'http://pagerduty.foo.bar/create_event.json',
+            headers=None,
+            json={
+                'details': {
+                    'record': {
+                        'compressed_size': '9982',
+                        'node_id': '1',
+                        'cb_server': 'cbserver',
+                        'timestamp': '1496947381.18', 'md5': '0F9AA55DA3BDE84B35656AD8911A22E1',
+                        'type': 'binarystore.file.added',
+                        'file_path': '/tmp/5DA/AD8/0F9AA55DA3BDE84B35656AD8911A22E1.zip',
+                        'size': '21504'},
+                    'description': 'Info about this rule and what actions to take'
+                },
+                'service_key': 'mocked_service_key',
+                'client': 'StreamAlert',
+                'event_type': 'trigger',
+                'description': 'StreamAlert Rule Triggered - cb_binarystore_file_added'
+            },
+            timeout=3.05, verify=True
+        )
+
     @patch('logging.Logger.error')
     @patch('requests.post')
     def test_dispatch_failure(self, post_mock, log_mock):

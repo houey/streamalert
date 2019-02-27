@@ -41,6 +41,10 @@ SEVERITY_INFO = 'info'
 SEVERITY_UNKNOWN = ''
 
 
+class PagerdutySearchDelay(Exception):
+    """PagerdutyAlertDelay handles any delays looking up PagerDuty Incidents"""
+
+
 class EventsV2DataProvider(object):
     """This class is meant to be mixed-into pagerduty outputs that integrate with v2 of the API
 
@@ -229,16 +233,15 @@ class PagerDutyOutputV2(OutputDispatcher, EventsV2DataProvider):
 
         data = self.events_v2_data(alert, descriptor, creds['routing_key'])
 
-        try:
-            self._post_request_retry(creds['url'], data, None, True)
-        except OutputRequestFailure:
+        http = JsonHttpProvider(self)
+        client = PagerDutyEventsV2ApiClient(http)
+
+        result = client.enqueue_event(data)
+
+        if result is False:
             return False
 
         return True
-
-
-class PagerdutySearchDelay(Exception):
-    """PagerdutyAlertDelay handles any delays looking up PagerDuty Incidents"""
 
 
 @StreamAlertOutput
@@ -835,3 +838,25 @@ class PagerDutyEventsV1ApiClient(object):
     """Service for finding URLs of various resources on the Events v1 API"""
 
     EVENTS_V1_API_BASE_URL = 'https://events.pagerduty.com/generic/2010-04-15/create_event.json'
+
+    def __init__(self, service_key, http_provider):
+        self._service_key = service_key
+        self._http_provider = http_provider #  type: JsonHttpProvider
+
+    def send_event(self, incident_description, incident_details):
+        data = {
+            'service_key': self._service_key,
+            'event_type': 'trigger',
+            'description': incident_description,
+            'details': incident_details,
+            'client': 'StreamAlert'
+        }
+        try:
+            result = self._http_provider.post(
+                self.EVENTS_V1_API_BASE_URL,
+                data,
+                headers=None,
+                verify=True
+            )
+        except OutputRequestFailure:
+            return False
