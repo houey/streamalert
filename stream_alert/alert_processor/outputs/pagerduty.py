@@ -319,163 +319,6 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
                             cred_requirement=True))
         ])
 
-    @staticmethod
-    def _get_endpoint(base_url, endpoint):
-        """Helper to get the full url for a PagerDuty Incidents endpoint.
-
-        Args:
-            base_url (str): Base URL for the API
-            endpoint (str): Endpoint that we want the full URL for
-
-        Returns:
-            str: Full URL of the provided endpoint
-        """
-        return os.path.join(base_url, endpoint)
-
-    @backoff.on_exception(backoff.constant,
-                          PagerdutySearchDelay,
-                          max_tries=BACKOFF_MAX,
-                          interval=BACKOFF_TIME,
-                          on_backoff=backoff_handler(),
-                          on_success=success_handler(),
-                          on_giveup=giveup_handler())
-    def _get_event_incident_id(self, incident_key):
-        """Helper to lookup an incident using the incident_key and return the id
-
-        Args:
-            incident_key (str): Incident key that indentifies uniquely an incident
-
-        Returns:
-            str: ID of the incident after look up the incident_key
-
-        """
-        params = {
-            'incident_key': incident_key
-        }
-        incidents_url = self._get_endpoint(self._base_url, self.INCIDENTS_ENDPOINT)
-        response = self._generic_api_get(incidents_url, params)
-
-        incident = response.get('incidents', [])
-        if not incident:
-            raise PagerdutySearchDelay()
-
-        return incident[0].get('id')
-
-    def _merge_incidents(self, url, to_be_merged_id):
-        """Helper to merge incidents by id using the PagerDuty REST API v2
-
-        Args:
-            url (str): The url to send the requests to in the API
-            to_be_merged_id (str): ID of the incident to merge with
-
-        Returns:
-            dict: Contains the HTTP response of the request to the API
-        """
-        params = {
-            'source_incidents': [
-                {
-                    'id': to_be_merged_id,
-                    'type': 'incident_reference'
-                }
-            ]
-        }
-        try:
-            resp = self._put_request_retry(url, params, self._headers, False)
-        except OutputRequestFailure:
-            return False
-
-        response = resp.json()
-        if not response:
-            return False
-
-        return response
-
-    def _generic_api_get(self, url, params):
-        """Helper to submit generic GET requests with parameters to the PagerDuty REST API v2
-
-        Args:
-            url (str): The url to send the requests to in the API
-
-        Returns:
-            dict: Contains the HTTP response of the request to the API
-        """
-        try:
-            resp = self._get_request_retry(url, params, self._headers, False)
-        except OutputRequestFailure:
-            return False
-
-        response = resp.json()
-        if not response:
-            return False
-
-        return response
-
-    def _check_exists(self, filter_str, url, target_key, get_id=True):
-        """Generic method to run a search in the PagerDuty REST API and return the id
-        of the first occurence from the results.
-
-        Args:
-            filter_str (str): The query filter to search for in the API
-            url (str): The url to send the requests to in the API
-            target_key (str): The key to extract in the returned results
-            get_id (boolean): Whether to generate a dict with result and reference
-
-        Returns:
-            str: ID of the targeted element that matches the provided filter or
-                 True/False whether a matching element exists or not.
-        """
-        params = {
-            'query': filter_str
-        }
-        response = self._generic_api_get(url, params)
-        if not response:
-            return False
-
-        if not get_id:
-            return True
-
-        # We need the list to have elements
-        target_element = response.get(target_key, [])
-        if not target_element:
-            return False
-
-        # If there are results, get the first occurence from the list
-        return target_element[0].get('id', False)
-
-    def _user_verify(self, user, get_id=True):
-        """Method to verify the existence of an user with the API
-        Args:
-            user (str): User to query about in the API.
-            get_id (boolean): Whether to generate a dict with result and reference
-        Returns:
-            dict or False: JSON object be used in the API call, containing the user_id
-                           and user_reference. False if user is not found
-        """
-        return self._item_verify(user, self.USERS_ENDPOINT, 'user_reference', get_id)
-
-    def _item_verify(self, item_str, item_key, item_type, get_id=True):
-        """Method to verify the existence of an item with the API
-        Args:
-            item_str (str): Service to query about in the API
-            item_key (str): Endpoint/key to be extracted from search results
-            item_type (str): Type of item reference to be returned
-            get_id (boolean): Whether to generate a dict with result and reference
-        Returns:
-            dict: JSON object be used in the API call, containing the item id
-                  and the item reference, True if it just exists or False if it fails
-        """
-        item_url = self._get_endpoint(self._base_url, item_key)
-        item_id = self._check_exists(item_str, item_url, item_key, get_id)
-        if not item_id:
-            LOGGER.info('%s not found in %s, %s', item_str, item_key, self.__service__)
-            return False
-
-        if get_id:
-            return {'id': item_id, 'type': item_type}
-
-        return item_id
-
-
     def _dispatch(self, alert, descriptor):
         """Send incident to Pagerduty Incidents API v2
 
@@ -495,6 +338,14 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
 
 
 class WorkContext(object):
+    """Class encapsulating a bunch of self-contained, interdependent PagerDuty work.
+
+    Because PagerDuty work involves a lot of steps that share a lot of data, we carved this
+    section out.
+    """
+    BACKOFF_MAX = 5
+    BACKOFF_TIME = 5
+
     def __init__(self, output_dispatcher, credentials):
         self._output = output_dispatcher
         self._credentials = credentials
@@ -591,11 +442,7 @@ class WorkContext(object):
             return False
 
         # Keep that id to be merged later with the created incident
-        event_incident = self._api_client.get_incident_by_key(incident_key)
-        if not event_incident:
-            raise PagerdutySearchDelay()
-
-        event_incident_id = event_incident.get('id')
+        event_incident_id = self.get_incident_id_from_event_incident_key(incident_key)
 
         # Merge the incident with the event, so we can have a rich context incident
         # assigned to a specific person, which the PagerDuty REST API v2 does not allow
@@ -611,6 +458,21 @@ class WorkContext(object):
             self._api_client.add_note(merged_id, note)
 
         return True
+
+    @backoff.on_exception(backoff.constant,
+                          PagerdutySearchDelay,
+                          max_tries=BACKOFF_MAX,
+                          interval=BACKOFF_TIME,
+                          on_backoff=backoff_handler(),
+                          on_success=success_handler(),
+                          on_giveup=giveup_handler())
+    def get_incident_id_from_event_incident_key(self, incident_key):
+        # Keep that id to be merged later with the created incident
+        event_incident = self._api_client.get_incident_by_key(incident_key)
+        if not event_incident:
+            raise PagerdutySearchDelay()
+
+        return event_incident.get('id')
 
     def verify_user_exists(self):
         # Get user email to be added as From header and verify

@@ -219,56 +219,6 @@ class TestPagerDutyIncidentOutput(object):
         assert_equal(len(props), 1)
         assert_equal(props['api'], 'https://api.pagerduty.com')
 
-    def test_get_endpoint(self):
-        """PagerDutyIncidentOutput - Get Endpoint"""
-        endpoint = self._dispatcher._get_endpoint(self.CREDS['api'], 'testtest')
-        assert_equal(endpoint, 'https://api.pagerduty.com/testtest')
-
-    @patch('requests.get')
-    def test_check_exists_sends_correct_request(self, get_mock):
-        """PagerDutyIncidentOutput - Check Exists sends correct request"""
-        get_mock.return_value.status_code = 200
-
-        self._dispatcher._check_exists('filter', 'http://mock_url', 'check')
-
-        get_mock.assert_called_with(
-            'http://mock_url',
-            headers=None,
-            params={'query': 'filter'},
-            timeout=3.05,
-            verify=False
-        )
-
-    @patch('requests.get')
-    def test_check_exists_get_id(self, get_mock):
-        """PagerDutyIncidentOutput - Check Exists Get ID"""
-        # GET /check
-        get_mock.return_value.status_code = 200
-        json_check = {'check': [{'id': 'checked_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        checked = self._dispatcher._check_exists('filter', 'http://mock_url', 'check')
-        assert_equal(checked, 'checked_id')
-
-    @patch('requests.get')
-    def test_check_exists_get_id_fail(self, get_mock):
-        """PagerDutyIncidentOutput - Check Exists Get Id Fail"""
-        get_mock.return_value.status_code = 200
-        get_mock.return_value.json.return_value = dict()
-
-        checked = self._dispatcher._check_exists('filter', 'http://mock_url', 'check')
-        assert_false(checked)
-
-    @patch('requests.get')
-    def test_check_exists_no_get_id(self, get_mock):
-        """PagerDutyIncidentOutput - Check Exists No Get Id"""
-        # GET /check
-        get_mock.return_value.status_code = 200
-        json_check = {'check': [{'id': 'checked_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        assert_true(self._dispatcher._check_exists('filter', 'http://mock_url', 'check', False))
-
     @patch('requests.put')
     @patch('requests.post')
     @patch('requests.get')
