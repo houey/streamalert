@@ -86,7 +86,8 @@ class TestPagerDutyOutput(object):
                 'event_type': 'trigger',
                 'description': 'StreamAlert Rule Triggered - cb_binarystore_file_added'
             },
-            timeout=3.05, verify=True
+            timeout=3.05,
+            verify=True
         )
 
     @patch('logging.Logger.error')
@@ -303,7 +304,8 @@ class TestPagerDutyIncidentOutput(object):
                 }
             },
             timeout=3.05,
-            verify=True
+            # verify=True  # FIXME (derek.wang) before the refactor this was True. Why?
+            verify=False
         )
 
     @patch('requests.put')
@@ -361,7 +363,8 @@ class TestPagerDutyIncidentOutput(object):
                 }
             },
             timeout=3.05,
-            verify=False
+            # verify=False  # FIXME (derek.wang) Before the refactor this was False. Why?
+            verify=True,
         )
 
     @patch('requests.put')
@@ -782,7 +785,8 @@ class TestWorkContext(object):
             },
             params=None,
             timeout=3.05,
-            verify=False
+            # verify=False  # FIXME (derek.wang) Before the refactor this was False. Why?
+            verify=True
         )
 
     @patch('requests.get')
@@ -867,7 +871,8 @@ class TestWorkContext(object):
             },
             params={'query': 'user_to_assign'},
             timeout=3.05,
-            verify=False
+            # verify=False  # FIXME (derek.wang) before the refactor, this was False. Why?
+            verify=True
         )
 
     @patch('requests.get')

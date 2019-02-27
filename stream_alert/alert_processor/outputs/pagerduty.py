@@ -108,7 +108,7 @@ class PagerDutyOutput(OutputDispatcher):
         Returns:
             dict: Contains various default items for this output (ie: url)
         """
-        return {'url': 'https://events.pagerduty.com/generic/2010-04-15/create_event.json'}
+        return {'url': PagerDutyEventsV1ApiClient.EVENTS_V1_API_ENDPOINT}
 
     @classmethod
     def get_user_defined_properties(cls):
@@ -176,10 +176,7 @@ class PagerDutyOutput(OutputDispatcher):
 
 @StreamAlertOutput
 class PagerDutyOutputV2(OutputDispatcher, EventsV2DataProvider):
-    """PagerDutyOutput handles all alert dispatching for PagerDuty Events API v2
-
-    API documentation can be found here: https://v2.developer.pagerduty.com/docs/events-api-v2
-    """
+    """PagerDutyOutput handles all alert dispatching for PagerDuty Events API v2"""
     __service__ = 'pagerduty-v2'
 
     @classmethod
@@ -190,7 +187,7 @@ class PagerDutyOutputV2(OutputDispatcher, EventsV2DataProvider):
         Returns:
             dict: Contains various default items for this output (ie: url)
         """
-        return {'url': 'https://events.pagerduty.com/v2/enqueue'}
+        return {'url': PagerDutyEventsV2ApiClient.EVENTS_V2_API_ENQUEUE_ENDPOINT}
 
     @classmethod
     def get_user_defined_properties(cls):
@@ -234,7 +231,7 @@ class PagerDutyOutputV2(OutputDispatcher, EventsV2DataProvider):
         data = self.events_v2_data(alert, descriptor, creds['routing_key'])
 
         http = JsonHttpProvider(self)
-        client = PagerDutyEventsV2ApiClient(http)
+        client = PagerDutyEventsV2ApiClient(http, enqueue_endpoint=creds['url'])
 
         result = client.enqueue_event(data)
 
@@ -246,9 +243,14 @@ class PagerDutyOutputV2(OutputDispatcher, EventsV2DataProvider):
 
 @StreamAlertOutput
 class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
-    """PagerDutyIncidentOutput handles all alert dispatching for PagerDuty Incidents API v2
+    """PagerDutyIncidentOutput handles all alert dispatching for PagerDuty Incidents REST API
 
-    API documentation can be found here: https://v2.developer.pagerduty.com/docs/rest-api
+    In addition to using the REST API, this PagerDuty implementation also performs automatic
+    assignment of the incident, based upon context parameters.
+
+    context = {
+      'assigned_user': 'somebody@somewhere.somewhere'
+    }
     """
     __service__ = 'pagerduty-incident'
     INCIDENTS_ENDPOINT = 'incidents'
@@ -274,7 +276,7 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
         Returns:
             dict: Contains various default items for this output (ie: url)
         """
-        return {'api': 'https://api.pagerduty.com'}
+        return {'api': PagerDutyRestApiClient.REST_API_BASE_URL}
 
     @classmethod
     def get_user_defined_properties(cls):
@@ -360,7 +362,8 @@ class WorkContext(object):
         self._api_client = PagerDutyRestApiClient(
             self._credentials['token'],
             self._credentials['email_from'],
-            http
+            http,
+            url=self._credentials['api']
         )
         self._events_client = PagerDutyEventsV2ApiClient(http)
 
@@ -472,7 +475,7 @@ class WorkContext(object):
         # Keep that id to be merged later with the created incident
         event_incident = self._api_client.get_incident_by_key(incident_key)
         if not event_incident:
-            raise PagerdutySearchDelay()
+            raise PagerdutySearchDelay()# FIXME (derek.wang) test-coverage
 
         return event_incident.get('id')
 
@@ -559,7 +562,9 @@ class WorkContext(object):
 class JsonHttpProvider(object):
     """Wraps and re-uses the HTTP implementation on the output dispatcher.
 
-    Intended to de-couple the ApiClient classes from the OutputDispatcher.
+    Intended to de-couple the ApiClient classes from the OutputDispatcher. It re-uses some
+    HTTP implementation that's baked into the OutputDispatcher. It is safe to ignore the
+    breach-of-abstraction violations here.
     """
 
     def __init__(self, output_dispatcher):
@@ -572,7 +577,7 @@ class JsonHttpProvider(object):
             return False
 
         if not result:
-            return False
+            return False# FIXME (derek.wang) test-coverage
 
         response = result.json()
         if not response:
@@ -587,7 +592,7 @@ class JsonHttpProvider(object):
             return False
 
         if not result:
-            return False
+            return False# FIXME (derek.wang) test-coverage
 
         response = result.json()
         if not response:
@@ -599,10 +604,10 @@ class JsonHttpProvider(object):
         try:
             result = self._output_dispatcher._put_request_retry(url, params, headers, verify)
         except OutputRequestFailure:
-            return False
+            return False# FIXME (derek.wang) test-coverage
 
         if not result:
-            return False
+            return False# FIXME (derek.wang) test-coverage
 
         response = result.json()
         if not response:
@@ -611,15 +616,43 @@ class JsonHttpProvider(object):
         return response
 
 
-class PagerDutyRestApiClient(object):
-    """Service for finding URLs of various resources on the REST API"""
+class SslVerifiable(object):
+    """Mixin for tracking whether or not this is an SSL verifiable.
+
+    Mix this into API client types of classes.
+
+    The idea is to only do host ssl certificate verification on the very first time a unique
+    host is hit, since the handshake process is slow. Subsequent requests to the same host
+    within the current request can void certificate verification to speed things up.
+    """
+    def __init__(self):
+        self._host_ssl_verified = False
+
+    def _should_do_ssl_verify(self):
+        return not self._host_ssl_verified
+
+    def _update_ssl_verified(self, response):
+        if response is not False:
+            self._host_ssl_verified = True
+
+        return response
+
+
+class PagerDutyRestApiClient(SslVerifiable):
+    """Service for finding URLs of various resources on the REST API
+
+
+    """
 
     REST_API_BASE_URL = 'https://api.pagerduty.com'
 
-    def __init__(self, authorization_token, user_email, http_provider):
+    def __init__(self, authorization_token, user_email, http_provider, url=None):
+        super(PagerDutyRestApiClient, self).__init__()
+
         self._authorization_token = authorization_token
         self._user_email = user_email
         self._http_provider = http_provider  # type: JsonHttpProvider
+        self._base_url = url if url else self.REST_API_BASE_URL
 
     def get_user_by_email(self, user_email):
         """Fetches a pagerduty user by an email address.
@@ -632,8 +665,10 @@ class PagerDutyRestApiClient(object):
                 'query': user_email,
             },
             self._construct_headers(omit_email=True),
-            verify=False
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(response)
+
         if not response:
             return False
 
@@ -647,11 +682,13 @@ class PagerDutyRestApiClient(object):
             {
                 'incident_key': incident_key
             },
-            headers=self._construct_headers()
+            headers=self._construct_headers(),
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(incidents)
 
         if not incidents:
-            return False
+            return False# FIXME (derek.wang) test-coverage
 
         incidents = incidents.get('incidents', [])
 
@@ -662,11 +699,9 @@ class PagerDutyRestApiClient(object):
             self._get_priorities_url(),
             None,
             headers=self._construct_headers(),
-            # (derek.wang) it is not clear to me why this is the case but it was intentionally
-            # chosen to perform SSL verification on this POST endpoint and to not verify on
-            # all other endpoints.
-            verify=False
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(priorities)
 
         if not priorities:
             return False
@@ -674,14 +709,16 @@ class PagerDutyRestApiClient(object):
         return priorities.get('priorities', [])
 
     def get_escalation_policy_by_id(self, escalation_policy_id):
-        escalation_policies = self._http_provider.get(
+        escalation_policies = self._http_provider.get(# FIXME (derek.wang) test-coverage
             self._get_escalation_policies_url(),
             {
                 'query': escalation_policy_id,
             },
             headers=self._construct_headers(),
-            verify=False,
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(escalation_policies)
+
         if not escalation_policies:
             return False
 
@@ -702,8 +739,10 @@ class PagerDutyRestApiClient(object):
             self._get_incident_merge_url(parent_incident_id),
             data,
             headers=self._construct_headers(),
-            verify=False
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(merged_incident)
+
         if not merged_incident:
             return False
 
@@ -726,11 +765,9 @@ class PagerDutyRestApiClient(object):
             self._get_incidents_url(),
             incident_data,
             headers=self._construct_headers(),
-            # (derek.wang) it is not clear to me why this is the case but it was intentionally
-            # chosen to perform SSL verification on this POST endpoint and to not verify on
-            # all other endpoints.
-            verify=True
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(incident)
 
         if not incident:
             return False
@@ -758,16 +795,20 @@ class PagerDutyRestApiClient(object):
                 }
             },
             self._construct_headers(),
-            # (derek.wang) it is not clear to me why this is the case but it was intentionally
-            # chosen to perform SSL verification on this POST endpoint and to not verify on
-            # all other endpoints.
-            verify=True
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(note)
 
         if not note:
             return False
 
         return note.get('note', False)
+
+    def _update_ssl_verified(self, response):
+        if response is not False:
+            self._host_ssl_verified = True
+
+        return response
 
     def _construct_headers(self, omit_email=False):
         headers = {
@@ -781,13 +822,13 @@ class PagerDutyRestApiClient(object):
         return headers
 
     def _get_escalation_policies_url(self):
-        return '{base_url}/escalation_policies'.format(base_url=self.REST_API_BASE_URL)
+        return '{base_url}/escalation_policies'.format(base_url=self._base_url)# FIXME (derek.wang) test-coverage
 
     def _get_priorities_url(self):
-        return '{base_url}/priorities'.format(base_url=self.REST_API_BASE_URL)
+        return '{base_url}/priorities'.format(base_url=self._base_url)
 
     def _get_incidents_url(self):
-        return '{base_url}/incidents'.format(base_url=self.REST_API_BASE_URL)
+        return '{base_url}/incidents'.format(base_url=self._base_url)
 
     def _get_incident_url(self, incident_id):
         return '{incidents_url}/{incident_id}'.format(
@@ -802,19 +843,24 @@ class PagerDutyRestApiClient(object):
         return '{incident_url}/notes'.format(incident_url=self._get_incident_url(incident_id))
 
     def _get_users_url(self):
-        return '{base_url}/users'.format(base_url=self.REST_API_BASE_URL)
+        return '{base_url}/users'.format(base_url=self._base_url)
 
 
-class PagerDutyEventsV2ApiClient(object):
+class PagerDutyEventsV2ApiClient(SslVerifiable):
     """Service for finding URLs of various resources on the Events v2 API
 
     Documentation on Events v2 API: https://v2.developer.pagerduty.com/docs/events-api-v2
     """
 
-    EVENTS_V2_API_BASE_URL = 'https://events.pagerduty.com/v2'
+    EVENTS_V2_API_ENQUEUE_ENDPOINT = 'https://events.pagerduty.com/v2/enqueue'
 
-    def __init__(self, http_provider):
+    def __init__(self, http_provider, enqueue_endpoint=None):
+        super(PagerDutyEventsV2ApiClient, self).__init__()
+
         self._http_provider = http_provider  # type: JsonHttpProvider
+        self._enqueue_endpoint = (
+            enqueue_endpoint if enqueue_endpoint else self.EVENTS_V2_API_ENQUEUE_ENDPOINT
+        )
 
     def enqueue_event(self, event_data):
         """Enqueues a new event.
@@ -824,39 +870,49 @@ class PagerDutyEventsV2ApiClient(object):
         Note: For API v2, all authentication information is baked directly into the event_data,
         rather than being provided in the headers.
         """
-        return self._http_provider.post(
+        event = self._http_provider.post(
             self._get_event_enqueue_v2_url(),
             event_data,
-            headers=None
+            headers=None,
+            verify=self._should_do_ssl_verify()
         )
+        self._update_ssl_verified(event)
+
+        return event
 
     def _get_event_enqueue_v2_url(self):
-        return '{}/enqueue'.format(self.EVENTS_V2_API_BASE_URL)
+        if self._enqueue_endpoint:
+            return self._enqueue_endpoint
+
+        return '{}'.format(self.EVENTS_V2_API_ENQUEUE_ENDPOINT)
 
 
-class PagerDutyEventsV1ApiClient(object):
+class PagerDutyEventsV1ApiClient(SslVerifiable):
     """Service for finding URLs of various resources on the Events v1 API"""
 
-    EVENTS_V1_API_BASE_URL = 'https://events.pagerduty.com/generic/2010-04-15/create_event.json'
+    EVENTS_V1_API_ENDPOINT = 'https://events.pagerduty.com/generic/2010-04-15/create_event.json'
 
-    def __init__(self, service_key, http_provider):
-        self._service_key = service_key
+    def __init__(self, service_key, http_provider, api_endpoint=None):
+        super(PagerDutyEventsV1ApiClient, self).__init__()
+
+        self._service_key = service_key# FIXME (derek.wang) test-coverage
         self._http_provider = http_provider #  type: JsonHttpProvider
+        self._api_endpoint = api_endpoint if api_endpoint else self.EVENTS_V1_API_ENDPOINT
 
     def send_event(self, incident_description, incident_details):
-        data = {
+        data = {# FIXME (derek.wang) test-coverage
             'service_key': self._service_key,
             'event_type': 'trigger',
             'description': incident_description,
             'details': incident_details,
             'client': 'StreamAlert'
         }
-        try:
-            result = self._http_provider.post(
-                self.EVENTS_V1_API_BASE_URL,
-                data,
-                headers=None,
-                verify=True
-            )
-        except OutputRequestFailure:
-            return False
+        result = self._http_provider.post(
+            self._api_endpoint,
+            data,
+            headers=None,
+            verify=self._should_do_ssl_verify()
+        )
+        self._update_ssl_verified(result)
+
+        return result
