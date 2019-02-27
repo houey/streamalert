@@ -48,7 +48,6 @@ class TestPrettyLayout(object):
                     'mrkdwn_in': [],
                     'thumb_url': '',
                     'title': 'cb_binarystore_file_added',
-                    'fields': [],
                     'footer': '',
                     'ts': 1546329600.0,
                     'title_link': (
@@ -89,11 +88,11 @@ Att&ck vector:  Assuming direct control
                     'color': '#8ce071',
                     'fields': [
                         {
-                            'title': 'att&ck vector',
+                            'title': 'Att&ck vector',
                             'value': 'Assuming direct control',
                         },
                         {
-                            'title': 'reference',
+                            'title': 'Reference',
                             'value': 'somewhere_over_the_rainbow',
                         }
                     ]
