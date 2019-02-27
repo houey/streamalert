@@ -23,8 +23,8 @@ from nose.tools import assert_equal, assert_false, assert_true
 from stream_alert.alert_processor.outputs.pagerduty import (
     PagerDutyOutput,
     PagerDutyOutputV2,
-    PagerDutyIncidentOutput
-)
+    PagerDutyIncidentOutput,
+    WorkContext, PagerDutyRestApiClient, JsonHttpProvider)
 from tests.unit.stream_alert_alert_processor.helpers import get_alert
 
 
@@ -291,68 +291,6 @@ class TestPagerDutyIncidentOutput(object):
         assert_false(user_verified)
 
     @patch('requests.get')
-    def test_policy_verify_sends_correct_request(self, get_mock):
-        """PagerDutyIncidentOutput - Policy Verify Success (No Default)"""
-        # GET /escalation_policies
-        get_mock.return_value.status_code = 200
-
-        self._dispatcher._policy_verify('valid_policy', '')
-
-        get_mock.assert_called_with(
-            'https://api.pagerduty.com/escalation_policies',
-            headers=None,
-            params={'query': 'valid_policy'},
-            timeout=3.05,
-            verify=False
-        )
-
-    @patch('requests.get')
-    def test_policy_verify_success_no_default(self, get_mock):
-        """PagerDutyIncidentOutput - Policy Verify Sends Correct Request"""
-        # GET /escalation_policies
-        get_mock.return_value.status_code = 200
-        json_check = {'escalation_policies': [{'id': 'good_policy_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        policy_verified = self._dispatcher._policy_verify('valid_policy', '')
-        assert_equal(policy_verified['id'], 'good_policy_id')
-        assert_equal(policy_verified['type'], 'escalation_policy_reference')
-
-    @patch('requests.get')
-    def test_policy_verify_success_default(self, get_mock):
-        """PagerDutyIncidentOutput - Policy Verify Success (Default)"""
-        # GET /escalation_policies
-        type(get_mock.return_value).status_code = PropertyMock(side_effect=[200, 200])
-        json_check_bad = {'no_escalation_policies': [{'id': 'bad_policy_id'}]}
-        json_check_good = {'escalation_policies': [{'id': 'good_policy_id'}]}
-        get_mock.return_value.json.side_effect = [json_check_bad, json_check_good]
-
-        policy_verified = self._dispatcher._policy_verify('valid_policy', 'default_policy')
-        assert_equal(policy_verified['id'], 'good_policy_id')
-        assert_equal(policy_verified['type'], 'escalation_policy_reference')
-
-    @patch('requests.get')
-    def test_policy_verify_fail_default(self, get_mock):
-        """PagerDutyIncidentOutput - Policy Verify Fail (Default)"""
-        # GET /not_escalation_policies
-        type(get_mock.return_value).status_code = PropertyMock(side_effect=[400, 400])
-        json_check_bad = {'escalation_policies': [{'id': 'bad_policy_id'}]}
-        json_check_bad_default = {'escalation_policies': [{'id': 'good_policy_id'}]}
-        get_mock.return_value.json.side_effect = [json_check_bad, json_check_bad_default]
-
-        assert_false(self._dispatcher._policy_verify('valid_policy', 'default_policy'))
-
-    @patch('requests.get')
-    def test_policy_verify_fail_no_default(self, get_mock):
-        """PagerDutyIncidentOutput - Policy Verify Fail (No Default)"""
-        # GET /not_escalation_policies
-        get_mock.return_value.status_code = 200
-        json_check = {'not_escalation_policies': [{'not_id': 'verified_policy_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        assert_false(self._dispatcher._policy_verify('valid_policy', 'default_policy'))
-
-    @patch('requests.get')
     def test_service_verify_sends_correct_request(self, get_mock):
         """PagerDutyIncidentOutput - Service Verify Sends Correct Request"""
         # GET /services
@@ -439,189 +377,6 @@ class TestPagerDutyIncidentOutput(object):
         get_mock.return_value.json.return_value = json_check
 
         assert_true(self._dispatcher._item_verify('valid_item', 'items', 'item_reference', False))
-
-    @patch('requests.get')
-    def test_priority_verify_sends_correct_reuqest(self, get_mock):
-        """PagerDutyIncidentOutput - Priority Verify Sends Correct Request"""
-        priority_name = 'priority_name'
-        # GET /priorities
-        get_mock.return_value.status_code = 200
-        context = {'incident_priority': priority_name}
-
-        self._dispatcher._priority_verify(context)
-
-        get_mock.assert_called_with(
-            'https://api.pagerduty.com/priorities',
-            headers=None,
-            params={},
-            timeout=3.05,
-            verify=False
-        )
-
-    @patch('requests.get')
-    def test_priority_verify_success(self, get_mock):
-        """PagerDutyIncidentOutput - Priority Verify Success"""
-        priority_name = 'priority_name'
-        # GET /priorities
-        get_mock.return_value.status_code = 200
-        json_check = {'priorities': [{'id': 'verified_priority_id', 'name': priority_name}]}
-        get_mock.return_value.json.return_value = json_check
-
-        context = {'incident_priority': priority_name}
-
-        priority_verified = self._dispatcher._priority_verify(context)
-        assert_equal(priority_verified['id'], 'verified_priority_id')
-        assert_equal(priority_verified['type'], 'priority_reference')
-
-    @patch('requests.get')
-    def test_priority_verify_fail(self, get_mock):
-        """PagerDutyIncidentOutput - Priority Verify Fail"""
-        # GET /priorities
-        get_mock.return_value.status_code = 404
-
-        context = {'incident_priority': 'priority_name'}
-
-        priority_not_verified = self._dispatcher._priority_verify(context)
-        assert_equal(priority_not_verified, dict())
-
-    @patch('requests.get')
-    def test_priority_verify_empty(self, get_mock):
-        """PagerDutyIncidentOutput - Priority Verify Empty"""
-        # GET /priorities
-        get_mock.return_value.status_code = 200
-        json_check = {}
-        get_mock.return_value.json.return_value = json_check
-
-        context = {'incident_priority': 'priority_name'}
-
-        priority_not_verified = self._dispatcher._priority_verify(context)
-        assert_equal(priority_not_verified, dict())
-
-    @patch('requests.get')
-    def test_priority_verify_not_found(self, get_mock):
-        """PagerDutyIncidentOutput - Priority Verify Not Found"""
-        # GET /priorities
-        get_mock.return_value.status_code = 200
-        json_check = {'priorities': [{'id': 'verified_priority_id', 'name': 'not_priority_name'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        context = {'incident_priority': 'priority_name'}
-
-        priority_not_verified = self._dispatcher._priority_verify(context)
-        assert_equal(priority_not_verified, dict())
-
-    @patch('requests.get')
-    def test_priority_verify_invalid(self, get_mock):
-        """PagerDutyIncidentOutput - Priority Verify Invalid"""
-        # GET /priorities
-        get_mock.return_value.status_code = 200
-        json_check = {'not_priorities': [{'id': 'verified_priority_id', 'name': 'priority_name'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        context = {'incident_priority': 'priority_name'}
-
-        priority_not_verified = self._dispatcher._priority_verify(context)
-        assert_equal(priority_not_verified, dict())
-
-    @patch('requests.get')
-    def test_incident_assignment_user_sends_correct_rquest(self, get_mock):
-        """PagerDutyIncidentOutput - Incident Assignment User Sends Correct Request"""
-        context = {'assigned_user': 'user_to_assign'}
-        get_mock.return_value.status_code = 200
-
-        self._dispatcher._incident_assignment(context)
-
-        get_mock.assert_called_with(
-            'https://api.pagerduty.com/users',
-            headers=None,
-            params={'query': 'user_to_assign'},
-            timeout=3.05,
-            verify=False
-        )
-
-    @patch('requests.get')
-    def test_incident_assignment_user(self, get_mock):
-        """PagerDutyIncidentOutput - Incident Assignment User"""
-        context = {'assigned_user': 'user_to_assign'}
-        get_mock.return_value.status_code = 200
-        json_user = {'users': [{'id': 'verified_user_id'}]}
-        get_mock.return_value.json.return_value = json_user
-
-        assigned_key, assigned_value = self._dispatcher._incident_assignment(context)
-
-        assert_equal(assigned_key, 'assignments')
-        assert_equal(assigned_value[0]['assignee']['id'], 'verified_user_id')
-        assert_equal(assigned_value[0]['assignee']['type'], 'user_reference')
-
-    def test_incident_assignment_policy_no_default(self):
-        """PagerDutyIncidentOutput - Incident Assignment Policy (No Default)"""
-        context = {'assigned_policy_id': 'policy_id_to_assign'}
-
-        assigned_key, assigned_value = self._dispatcher._incident_assignment(context)
-
-        assert_equal(assigned_key, 'escalation_policy')
-        assert_equal(assigned_value['id'], 'policy_id_to_assign')
-        assert_equal(assigned_value['type'], 'escalation_policy_reference')
-
-    @patch('requests.post')
-    def test_add_note_incident_sends_correct_request(self, post_mock):
-        """PagerDutyIncidentOutput - Add Note to Incident Sends Correct Request"""
-        post_mock.return_value.status_code = 200
-
-        self._dispatcher._add_incident_note('incident_id', 'this is the note')
-
-        post_mock.assert_called_with(
-            'https://api.pagerduty.com/incidents/incident_id/notes',
-            headers=None,
-            json={'note': {'content': 'this is the note'}},
-            timeout=3.05,
-            verify=True
-        )
-
-
-    @patch('requests.post')
-    def test_add_note_incident_success(self, post_mock):
-        """PagerDutyIncidentOutput - Add Note to Incident Success"""
-        post_mock.return_value.status_code = 200
-        json_note = {'note': {'id': 'created_note_id'}}
-        post_mock.return_value.json.return_value = json_note
-
-        note_id = self._dispatcher._add_incident_note('incident_id', 'this is the note')
-
-        assert_equal(note_id, 'created_note_id')
-
-    @patch('requests.post')
-    def test_add_note_incident_fail(self, post_mock):
-        """PagerDutyIncidentOutput - Add Note to Incident Fail"""
-        post_mock.return_value.status_code = 200
-        json_note = {'note': {'not_id': 'created_note_id'}}
-        post_mock.return_value.json.return_value = json_note
-
-        note_id = self._dispatcher._add_incident_note('incident_id', 'this is the note')
-
-        assert_false(note_id)
-
-    @patch('requests.post')
-    def test_add_note_incident_bad_request(self, post_mock):
-        """PagerDutyIncidentOutput - Add Note to Incident Bad Request"""
-        post_mock.return_value.status_code = 400
-        json_note = {'note': {'id': 'created_note_id'}}
-        post_mock.return_value.json.return_value = json_note
-
-        note_id = self._dispatcher._add_incident_note('incident_id', 'this is the note')
-
-        assert_false(note_id)
-
-    @patch('requests.post')
-    def test_add_note_incident_no_response(self, post_mock):
-        """PagerDutyIncidentOutput - Add Note to Incident No Response"""
-        post_mock.return_value.status_code = 200
-        json_note = {}
-        post_mock.return_value.json.return_value = json_note
-
-        note_id = self._dispatcher._add_incident_note('incident_id', 'this is the note')
-
-        assert_false(note_id)
 
     @patch('requests.put')
     @patch('requests.post')
@@ -1133,3 +888,241 @@ class TestPagerDutyIncidentOutput(object):
             self._dispatcher.dispatch(get_alert(), ':'.join([self.SERVICE, 'bad_descriptor'])))
 
         log_mock.assert_called_with('Failed to send alert to %s:%s', self.SERVICE, 'bad_descriptor')
+
+
+@patch('stream_alert.alert_processor.outputs.output_base.OutputDispatcher.MAX_RETRY_ATTEMPTS', 1)
+@patch('stream_alert.alert_processor.outputs.pagerduty.PagerDutyIncidentOutput.BACKOFF_MAX', 0)
+@patch('stream_alert.alert_processor.outputs.pagerduty.PagerDutyIncidentOutput.BACKOFF_TIME', 0)
+class TestWorkContext(object):
+    """Test class for WorkContext"""
+    DESCRIPTOR = 'unit_test_pagerduty-incident'
+    SERVICE = 'pagerduty-incident'
+    OUTPUT = ':'.join([SERVICE, DESCRIPTOR])
+    CREDS = {'api': 'https://api.pagerduty.com',
+             'token': 'mocked_token',
+             'service_name': 'mocked_service_name',
+             'service_id': 'mocked_service_id',
+             'escalation_policy': 'mocked_escalation_policy',
+             'escalation_policy_id': 'mocked_escalation_policy_id',
+             'email_from': 'email@domain.com',
+             'integration_key': 'mocked_key'}
+
+    @patch('stream_alert.alert_processor.outputs.output_base.OutputCredentialsProvider')
+    def setup(self, provider_constructor):
+        """Setup before each method"""
+        provider = MagicMock()
+        provider_constructor.return_value = provider
+        provider.load_credentials = Mock(
+            side_effect=lambda x: self.CREDS if x == self.DESCRIPTOR else None
+        )
+        dispatcher = PagerDutyIncidentOutput(None)
+        self._work = WorkContext(dispatcher, self.CREDS)
+
+    @patch('requests.get')
+    def test_get_standardized_priority_sends_correct_reuqest(self, get_mock):
+        """PagerDutyIncidentOutput - Priority Verify Sends Correct Request"""
+        priority_name = 'priority_name'
+        # GET /priorities
+        get_mock.return_value.status_code = 200
+        context = {'incident_priority': priority_name}
+
+        self._work.get_standardized_priority(context)
+
+        get_mock.assert_called_with(
+            'https://api.pagerduty.com/priorities',
+            headers={
+                'From': 'email@domain.com',
+                'Content-Type': 'application/json',
+                'Authorization': 'Token token=mocked_token',
+                'Accept': 'application/vnd.pagerduty+json;version=2'
+            },
+            params=None,
+            timeout=3.05,
+            verify=False
+        )
+
+    @patch('requests.get')
+    def test_get_standardized_priority_success(self, get_mock):
+        """PagerDutyIncidentOutput - Priority Verify Success"""
+        priority_name = 'priority_name'
+        # GET /priorities
+        get_mock.return_value.status_code = 200
+        json_check = {'priorities': [{'id': 'verified_priority_id', 'name': priority_name}]}
+        get_mock.return_value.json.return_value = json_check
+
+        context = {'incident_priority': priority_name}
+
+        priority_verified = self._work.get_standardized_priority(context)
+        assert_equal(priority_verified['id'], 'verified_priority_id')
+        assert_equal(priority_verified['type'], 'priority_reference')
+
+    @patch('requests.get')
+    def test_get_standardized_priority_fail(self, get_mock):
+        """PagerDutyIncidentOutput - Priority Verify Fail"""
+        # GET /priorities
+        get_mock.return_value.status_code = 404
+
+        context = {'incident_priority': 'priority_name'}
+
+        priority_not_verified = self._work.get_standardized_priority(context)
+        assert_equal(priority_not_verified, dict())
+
+    @patch('requests.get')
+    def test_get_standardized_priority_empty(self, get_mock):
+        """PagerDutyIncidentOutput - Priority Verify Empty"""
+        # GET /priorities
+        get_mock.return_value.status_code = 200
+        json_check = {}
+        get_mock.return_value.json.return_value = json_check
+
+        context = {'incident_priority': 'priority_name'}
+
+        priority_not_verified = self._work.get_standardized_priority(context)
+        assert_equal(priority_not_verified, dict())
+
+    @patch('requests.get')
+    def test_get_standardized_priority_not_found(self, get_mock):
+        """PagerDutyIncidentOutput - Priority Verify Not Found"""
+        # GET /priorities
+        get_mock.return_value.status_code = 200
+        json_check = {'priorities': [{'id': 'verified_priority_id', 'name': 'not_priority_name'}]}
+        get_mock.return_value.json.return_value = json_check
+
+        context = {'incident_priority': 'priority_name'}
+
+        priority_not_verified = self._work.get_standardized_priority(context)
+        assert_equal(priority_not_verified, dict())
+
+    @patch('requests.get')
+    def test_get_standardized_priority_invalid(self, get_mock):
+        """PagerDutyIncidentOutput - Priority Verify Invalid"""
+        # GET /priorities
+        get_mock.return_value.status_code = 200
+        json_check = {'not_priorities': [{'id': 'verified_priority_id', 'name': 'priority_name'}]}
+        get_mock.return_value.json.return_value = json_check
+
+        context = {'incident_priority': 'priority_name'}
+
+        priority_not_verified = self._work.get_standardized_priority(context)
+        assert_equal(priority_not_verified, dict())
+
+    @patch('requests.get')
+    def test_get_incident_assignment_user_sends_correct_rquest(self, get_mock):
+        """PagerDutyIncidentOutput - Incident Assignment User Sends Correct Request"""
+        context = {'assigned_user': 'user_to_assign'}
+        get_mock.return_value.status_code = 400
+
+        self._work.get_incident_assignment(context)
+
+        get_mock.assert_called_with(
+            'https://api.pagerduty.com/users',
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': 'Token token=mocked_token',
+                'Accept': 'application/vnd.pagerduty+json;version=2'
+            },
+            params={'query': 'user_to_assign'},
+            timeout=3.05,
+            verify=False
+        )
+
+    @patch('requests.get')
+    def test_get_incident_assignment_user(self, get_mock):
+        """PagerDutyIncidentOutput - Incident Assignment User"""
+        context = {'assigned_user': 'user_to_assign'}
+        get_mock.return_value.status_code = 200
+        json_user = {'users': [{'id': 'verified_user_id'}]}
+        get_mock.return_value.json.return_value = json_user
+
+        assigned_key, assigned_value = self._work.get_incident_assignment(context)
+
+        assert_equal(assigned_key, 'assignments')
+        assert_equal(assigned_value[0]['assignee']['id'], 'verified_user_id')
+        assert_equal(assigned_value[0]['assignee']['type'], 'user_reference')
+
+    def test_get_incident_assignment_policy_no_default(self):
+        """PagerDutyIncidentOutput - Incident Assignment Policy (No Default)"""
+        context = {'assigned_policy_id': 'policy_id_to_assign'}
+
+        assigned_key, assigned_value = self._work.get_incident_assignment(context)
+
+        assert_equal(assigned_key, 'escalation_policy')
+        assert_equal(assigned_value['id'], 'policy_id_to_assign')
+        assert_equal(assigned_value['type'], 'escalation_policy_reference')
+
+
+@patch('stream_alert.alert_processor.outputs.output_base.OutputDispatcher.MAX_RETRY_ATTEMPTS', 1)
+@patch('stream_alert.alert_processor.outputs.pagerduty.PagerDutyIncidentOutput.BACKOFF_MAX', 0)
+@patch('stream_alert.alert_processor.outputs.pagerduty.PagerDutyIncidentOutput.BACKOFF_TIME', 0)
+class TestPagerDutyRestApiClient(object):
+
+    @patch('stream_alert.alert_processor.outputs.output_base.OutputCredentialsProvider')
+    def setup(self, _):
+        dispatcher = PagerDutyIncidentOutput(None)
+        http = JsonHttpProvider(dispatcher)
+        self._api_client = PagerDutyRestApiClient('mocked_token', 'user@email.com', http)
+
+    @patch('requests.post')
+    def test_add_note_incident_sends_correct_request(self, post_mock):
+        """PagerDutyIncidentOutput - Add Note to Incident Sends Correct Request"""
+        post_mock.return_value.status_code = 200
+
+        self._api_client.add_note('incident_id', 'this is the note')
+
+        post_mock.assert_called_with(
+            'https://api.pagerduty.com/incidents/incident_id/notes',
+            headers={
+                'From': 'user@email.com',
+                'Content-Type': 'application/json',
+                'Authorization': 'Token token=mocked_token',
+                'Accept': 'application/vnd.pagerduty+json;version=2'
+            },
+            json={'note': {'content': 'this is the note'}},
+            timeout=3.05,
+            verify=True
+        )
+
+    @patch('requests.post')
+    def test_add_note_incident_success(self, post_mock):
+        """PagerDutyIncidentOutput - Add Note to Incident Success"""
+        post_mock.return_value.status_code = 200
+        json_note = {'note': {'id': 'created_note_id'}}
+        post_mock.return_value.json.return_value = json_note
+
+        note = self._api_client.add_note('incident_id', 'this is the note')
+
+        assert_equal(note.get('id'), 'created_note_id')
+
+    @patch('requests.post')
+    def test_add_note_incident_fail(self, post_mock):
+        """PagerDutyIncidentOutput - Add Note to Incident Fail"""
+        post_mock.return_value.status_code = 200
+        json_note = {'note': {'not_id': 'created_note_id'}}
+        post_mock.return_value.json.return_value = json_note
+
+        note = self._api_client.add_note('incident_id', 'this is the note')
+
+        assert_false(note.get('id'))
+
+    @patch('requests.post')
+    def test_add_note_incident_bad_request(self, post_mock):
+        """PagerDutyIncidentOutput - Add Note to Incident Bad Request"""
+        post_mock.return_value.status_code = 400
+        json_note = {'note': {'id': 'created_note_id'}}
+        post_mock.return_value.json.return_value = json_note
+
+        note = self._api_client.add_note('incident_id', 'this is the note')
+
+        assert_false(note)
+
+    @patch('requests.post')
+    def test_add_note_incident_no_response(self, post_mock):
+        """PagerDutyIncidentOutput - Add Note to Incident No Response"""
+        post_mock.return_value.status_code = 200
+        json_note = {}
+        post_mock.return_value.json.return_value = json_note
+
+        note = self._api_client.add_note('incident_id', 'this is the note')
+
+        assert_false(note)
+
