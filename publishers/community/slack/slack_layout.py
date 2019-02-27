@@ -223,7 +223,7 @@ class AttachFullRecord(AlertPublisher):
             next_length = next_item_length + len(next_document)
             if next_document and next_length > character_limit:
                 # Do not pop off the item just yet.
-                new_publication['slack.attachments'].append(
+                publication['slack.attachments'].append(
                     make_attachment(next_document, is_first_document, False)
                 )
                 next_document = ''
@@ -233,11 +233,11 @@ class AttachFullRecord(AlertPublisher):
 
         # Attach last document, if any remains
         if next_document:
-            new_publication['slack.attachments'].append(
+            publication['slack.attachments'].append(
                 make_attachment(next_document, is_first_document, True)
             )
 
-        return new_publication
+        return publication
 
     @staticmethod
     def _color():
