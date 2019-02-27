@@ -454,28 +454,8 @@ class TestPagerDutyIncidentOutput(object):
         json_priority = {'priorities': [{'id': 'priority_id', 'name': 'priority_name'}]}
         json_lookup = {'incidents': [{'id': 'incident_id'}]}
 
-        # GET /incidents
-        # def mock_get_response(*args, **kwargs):
-        #     if args[0] == 'https://api.pagerduty.com/users':
-        #         json = json_user
-        #     elif args[0] == 'https://api.pagerduty.com/incidents':
-        #         json = json_incident
-        #     elif args[0] == 'https://api.pagerduty.com/priorities':
-        #         json = json_priority
-        #     else:
-        #         raise RuntimeError('Unregistered: {}'.format(args[0]))
-        #
-        #     mock = MagicMock()
-        #     mock.status_code = 200
-        #     mock.json.return_value = json
-        #     return mock
-        #
-        #
-        # get_mock.side_effect = mock_get_response
-
-
         def setup_post_mock(mock, json_incident, json_event, json_note):
-            def post(*args, **kwargs):
+            def post(*args):
                 url = args[0]
                 if url == 'https://api.pagerduty.com/incidents':
                     response = json_incident
@@ -986,4 +966,3 @@ class TestPagerDutyRestApiClient(object):
         note = self._api_client.add_note('incident_id', 'this is the note')
 
         assert_false(note)
-

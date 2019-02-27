@@ -552,8 +552,13 @@ class WorkContext(object):
             'id': policy_id_to_assign, 'type': 'escalation_policy_reference'}
 
 
-# pylint: disable=too-many-public-methods
+# pylint: disable=protected-access
 class JsonHttpProvider(object):
+    """Wraps and re-uses the HTTP implementation on the output dispatcher.
+
+    Intended to de-couple the ApiClient classes from the OutputDispatcher.
+    """
+
     def __init__(self, output_dispatcher):
         self._output_dispatcher = output_dispatcher
 
@@ -830,6 +835,3 @@ class PagerDutyEventsV1ApiClient(object):
     """Service for finding URLs of various resources on the Events v1 API"""
 
     EVENTS_V1_API_BASE_URL = 'https://events.pagerduty.com/generic/2010-04-15/create_event.json'
-
-
-
