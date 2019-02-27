@@ -147,31 +147,22 @@ class PagerDutyOutput(OutputDispatcher):
         if not creds:
             return False
 
-        publication = compose_alert(alert, self, descriptor)
-
+        # Presentation defaults
         default_description = 'StreamAlert Rule Triggered - {}'.format(alert.rule_name)
         default_details = {
             'description': alert.rule_description,
             'record': alert.record,
         }
 
+        # Override presentation with publisher
+        publication = compose_alert(alert, self, descriptor)
         description = publication.get('pagerduty.description', default_description)
         details = publication.get('pagerduty.details', default_details)
 
-        data = {
-            'service_key': creds['service_key'],
-            'event_type': 'trigger',
-            'description': description,
-            'details': details,
-            'client': 'StreamAlert'
-        }
+        http = JsonHttpProvider(self)
+        client = PagerDutyEventsV1ApiClient(creds['service_key'], http, api_endpoint=creds['url'])
 
-        try:
-            self._post_request_retry(creds['url'], data, None, True)
-        except OutputRequestFailure:
-            return False
-
-        return True
+        return client.send_event(description, details)
 
 
 @StreamAlertOutput
@@ -385,6 +376,7 @@ class WorkContext(object):
             'type': 'incident_body',
             'details': alert.rule_description,
         }
+        default_incident_note = 'Creating SOX Incident'
 
         # Override presentation defaults with publisher fields
         incident_title = publication.get(
@@ -393,6 +385,13 @@ class WorkContext(object):
         )
         incident_body = publication.get('pagerduty-incident.incident_body',
                                         default_incident_body)
+        incident_note = publication.get(
+            'pagerduty-incident.note',
+            rule_context.get(
+                'note',
+                default_incident_note
+            )
+        )
 
         # FIXME (derek.wang) use publisher to set priority instead of context
         # Use the priority provided in the context, use it or the incident will be low priority
@@ -459,8 +458,7 @@ class WorkContext(object):
             LOGGER.error('Could not add note to incident, %s', self._output.__service__)
         else:
             merged_id = merged_incident.get('id')
-            note = rule_context.get('note', 'Creating SOX Incident')
-            self._api_client.add_note(merged_id, note)
+            self._api_client.add_note(merged_id, incident_note)
 
         return True
 
