@@ -442,10 +442,6 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
         # If there are results, get the first occurence from the list
         return target_element[0].get('id', False)
 
-    def _user_email_exists(self, user):
-        client = self._rest_api_client()
-        # FIXME (derek.wang)
-
     def _user_verify(self, user, get_id=True):
         """Method to verify the existence of an user with the API
         Args:
@@ -456,18 +452,6 @@ class PagerDutyIncidentOutput(OutputDispatcher, EventsV2DataProvider):
                            and user_reference. False if user is not found
         """
         return self._item_verify(user, self.USERS_ENDPOINT, 'user_reference', get_id)
-
-    def _service_verify(self, service):
-        """Method to verify the existence of a service with the API
-
-        Args:
-            service (str): Service to query about in the API
-
-        Returns:
-            dict: JSON object be used in the API call, containing the service_id
-                  and the service_reference
-        """
-        return self._item_verify(service, self.SERVICES_ENDPOINT, 'service_reference')
 
     def _item_verify(self, item_str, item_key, item_type, get_id=True):
         """Method to verify the existence of an item with the API

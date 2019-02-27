@@ -269,115 +269,6 @@ class TestPagerDutyIncidentOutput(object):
 
         assert_true(self._dispatcher._check_exists('filter', 'http://mock_url', 'check', False))
 
-    @patch('requests.get')
-    def test_user_verify_success(self, get_mock):
-        """PagerDutyIncidentOutput - User Verify Success"""
-        get_mock.return_value.status_code = 200
-        json_check = {'users': [{'id': 'verified_user_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        user_verified = self._dispatcher._user_verify('valid_user')
-        assert_equal(user_verified['id'], 'verified_user_id')
-        assert_equal(user_verified['type'], 'user_reference')
-
-    @patch('requests.get')
-    def test_user_verify_fail(self, get_mock):
-        """PagerDutyIncidentOutput - User Verify Fail"""
-        get_mock.return_value.status_code = 200
-        json_check = {'not_users': [{'not_id': 'verified_user_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        user_verified = self._dispatcher._user_verify('valid_user')
-        assert_false(user_verified)
-
-    @patch('requests.get')
-    def test_service_verify_sends_correct_request(self, get_mock):
-        """PagerDutyIncidentOutput - Service Verify Sends Correct Request"""
-        # GET /services
-        get_mock.return_value.status_code = 200
-
-        self._dispatcher._service_verify('valid_service')
-
-        get_mock.assert_called_with(
-            'https://api.pagerduty.com/services',
-            headers=None,
-            params={'query': 'valid_service'},
-            timeout=3.05,
-            verify=False
-        )
-
-    @patch('requests.get')
-    def test_service_verify_success(self, get_mock):
-        """PagerDutyIncidentOutput - Service Verify Success"""
-        # GET /services
-        get_mock.return_value.status_code = 200
-        json_check = {'services': [{'id': 'verified_service_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        service_verified = self._dispatcher._service_verify('valid_service')
-        assert_equal(service_verified['id'], 'verified_service_id')
-        assert_equal(service_verified['type'], 'service_reference')
-
-    @patch('requests.get')
-    def test_service_verify_fail(self, get_mock):
-        """PagerDutyIncidentOutput - Service Verify Fail"""
-        get_mock.return_value.status_code = 200
-        json_check = {'not_services': [{'not_id': 'verified_service_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        assert_false(self._dispatcher._service_verify('valid_service'))
-
-    @patch('requests.get')
-    def test_item_verify_sends_correct_request(self, get_mock):
-        """PagerDutyIncidentOutput - Item Verify Send Correct Request"""
-        # GET /items
-        get_mock.return_value.status_code = 200
-
-        self._dispatcher._item_verify('valid_item', 'items', 'item_reference')
-
-        get_mock.assert_called_with(
-            'https://api.pagerduty.com/items',
-            headers=None,
-            params={'query': 'valid_item'},
-            timeout=3.05,
-            verify=False
-        )
-
-    @patch('requests.get')
-    def test_item_verify_success(self, get_mock):
-        """PagerDutyIncidentOutput - Item Verify Success"""
-        # GET /items
-        get_mock.return_value.status_code = 200
-        json_check = {'items': [{'id': 'verified_item_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        item_verified = self._dispatcher._item_verify('valid_item', 'items', 'item_reference')
-
-        assert_equal(item_verified['id'], 'verified_item_id')
-        assert_equal(item_verified['type'], 'item_reference')
-
-    @patch('requests.get')
-    def test_item_verify_fail(self, get_mock):
-        """PagerDutyIncidentOutput - Item Verify Fail"""
-        # /not_items
-        get_mock.return_value.status_code = 200
-        json_check = {'not_items': [{'not_id': 'verified_item_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        item_verified = self._dispatcher._item_verify('http://mock_url', 'valid_item',
-                                                      'items', 'item_reference')
-        assert_false(item_verified)
-
-    @patch('requests.get')
-    def test_item_verify_no_get_id_success(self, get_mock):
-        """PagerDutyIncidentOutput - Item Verify No Get Id Success"""
-        # GET /items
-        get_mock.return_value.status_code = 200
-        json_check = {'items': [{'id': 'verified_item_id'}]}
-        get_mock.return_value.json.return_value = json_check
-
-        assert_true(self._dispatcher._item_verify('valid_item', 'items', 'item_reference', False))
-
     @patch('requests.put')
     @patch('requests.post')
     @patch('requests.get')
@@ -1049,6 +940,26 @@ class TestWorkContext(object):
         assert_equal(assigned_key, 'escalation_policy')
         assert_equal(assigned_value['id'], 'policy_id_to_assign')
         assert_equal(assigned_value['type'], 'escalation_policy_reference')
+
+    @patch('requests.get')
+    def test_user_verify_success(self, get_mock):
+        """PagerDutyIncidentOutput - User Verify Success"""
+        get_mock.return_value.status_code = 200
+        json_check = {'users': [{'id': 'verified_user_id'}]}
+        get_mock.return_value.json.return_value = json_check
+
+        user_verified = self._work.verify_user_exists()
+        assert_true(user_verified)
+
+    @patch('requests.get')
+    def test_user_verify_fail(self, get_mock):
+        """PagerDutyIncidentOutput - User Verify Fail"""
+        get_mock.return_value.status_code = 200
+        json_check = {'not_users': [{'not_id': 'verified_user_id'}]}
+        get_mock.return_value.json.return_value = json_check
+
+        user_verified = self._work.verify_user_exists()
+        assert_false(user_verified)
 
 
 @patch('stream_alert.alert_processor.outputs.output_base.OutputDispatcher.MAX_RETRY_ATTEMPTS', 1)
