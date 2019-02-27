@@ -455,7 +455,7 @@ class TestPagerDutyIncidentOutput(object):
         json_lookup = {'incidents': [{'id': 'incident_id'}]}
 
         def setup_post_mock(mock, json_incident, json_event, json_note):
-            def post(*args):
+            def post(*args, **_):
                 url = args[0]
                 if url == 'https://api.pagerduty.com/incidents':
                     response = json_incident
