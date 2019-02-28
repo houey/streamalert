@@ -44,7 +44,6 @@ class TestPrettyLayout(object):
                     'color': '#ff5a5f',
                     'text': 'Info about this rule and what actions to take',
                     'author_name': '',
-                    'footer_icon': '',
                     'mrkdwn_in': [],
                     'thumb_url': '',
                     'title': 'cb_binarystore_file_added',
@@ -56,12 +55,20 @@ class TestPrettyLayout(object):
                     ),
                     'image_url': '',
                     'fallback': 'Rule triggered: cb_binarystore_file_added',
-                    'author_icon': ''
+                    'author_icon': '',
+                    'footer_icon': '',
                 }
             ]
         }
 
-        assert_equal(publication, expectation)
+        assert_equal(publication['slack.text'], expectation['slack.text'])
+        assert_equal(publication['_previous_publication'], expectation['_previous_publication'])
+        assert_equal(len(publication['slack.attachments']), len(expectation['slack.attachments']))
+        assert_equal(
+            publication['slack.attachments'][0].keys(),
+            expectation['slack.attachments'][0].keys()
+        )
+        assert_equal(publication['slack.attachments'][0], expectation['slack.attachments'][0])
 
 
 class TestAttachRuleInfo(object):
